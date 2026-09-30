@@ -988,3 +988,9 @@ button.author:hover, .title-link:hover { text-decoration: underline; }
 
 .roster-details summary { cursor: pointer; color: var(--primary); font-weight: 500; padding: 8px 0; }
 .roster-details .list { margin-top: 4px; }
+
+.join-info { padding: 12px 14px; border-radius: 12px; background: var(--surface-2); font-size: 13px; line-height: 1.6; color: var(--text-2); margin-bottom: 16px; }
+.join-info strong { display: block; color: var(--text); font-size: 14px; margin-bottom: 4px; }
+.join-info ul { margin: 0; padding-inline-start: 18px; display: grid; gap: 4px; }
+.join-info b { color: var(--text); font-weight: 500; }
+.join-info p { margin: 8px 0 0; }

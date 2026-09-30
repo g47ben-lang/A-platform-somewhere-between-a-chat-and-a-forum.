@@ -61,7 +61,7 @@ export default function AuthPage() {
 
   const heading = mode === 'login' ? 'התחברות' : mode === 'signup' ? 'יצירת חשבון' : 'איפוס סיסמה';
   const sub =
-    mode === 'login' ? `המשך אל ${SITE_NAME}` : mode === 'signup' ? 'ההצטרפות מחייבת אישור של מנהלי הקהילה' : 'נשלח אליך קישור לבחירת סיסמה חדשה';
+    mode === 'login' ? `המשך אל ${SITE_NAME}` : mode === 'signup' ? 'ההצטרפות מיועדת לבחורי הישיבה בלבד' : 'נשלח אליך קישור לבחירת סיסמה חדשה';
 
   return (
     <div className="auth-screen">
@@ -72,6 +72,7 @@ export default function AuthPage() {
         </div>
         <h1 className="auth-title">{heading}</h1>
         <p className="auth-sub">{sub}</p>
+        {mode !== 'reset' && <JoinInfo login={mode === 'login'} />}
 
         {mode === 'signup' && (
           <label className="field">
@@ -135,6 +136,31 @@ export default function AuthPage() {
           </div>
         )}
       </form>
+    </div>
+  );
+}
+
+/** Who gets in how: shown on the login and sign-up screens. */
+function JoinInfo({ login }: { login: boolean }) {
+  return (
+    <div className="join-info">
+      <strong>איך נכנסים?</strong>
+      <ul>
+        <li>
+          <b>היית בצ'אט הקודם של הוועד?</b> המייל שלך כבר מאושר. יוצרים חשבון עם אותו מייל ונכנסים מיד.
+        </li>
+        <li>
+          <b>בחור בישיבה?</b> נרשמים עם השם המלא, פרטי ומשפחה, כמו ברשימת הישיבה, ונכנסים אוטומטית.
+        </li>
+        <li>
+          <b>אחרים:</b> הבקשה ממתינה לבדיקה של מנהל, ולא כל בקשה מאושרת.
+        </li>
+      </ul>
+      {login ? (
+        <p>נרשמת כבר? מתחברים כאן עם המייל והסיסמה. בפעם הראשונה לוחצים למטה על "יצירת חשבון".</p>
+      ) : (
+        <p>נרשמים פעם אחת בלבד. מי שכבר נרשם, חוזר למסך ההתחברות.</p>
+      )}
     </div>
   );
 }
