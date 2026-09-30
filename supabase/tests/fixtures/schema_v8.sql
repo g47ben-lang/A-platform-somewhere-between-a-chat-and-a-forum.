@@ -135,33 +135,6 @@ alter table messages add constraint messages_body_len
 create index if not exists messages_channel_created_idx on messages (channel_id, created_at desc);
 create index if not exists messages_author_idx on messages (author_id);
 
--- ---------- Polls ----------
--- A member opens a poll; it is announced by a message in a room (messages.poll_id) and answered on its page.
--- Votes are private: members see only totals, never who voted for what.
-create table if not exists polls (
-  id          bigint generated always as identity primary key,
-  author_id   uuid references profiles on delete cascade,
-  question    text not null check (char_length(question) between 1 and 300),
-  multi       boolean not null default false,  -- more than one answer allowed
-  closed      boolean not null default false,
-  created_at  timestamptz not null default now()
-);
-create table if not exists poll_options (
-  id        bigint generated always as identity primary key,
-  poll_id   bigint not null references polls on delete cascade,
-  position  int not null,
-  label     text not null check (char_length(label) between 1 and 100)
-);
-create index if not exists poll_options_poll_idx on poll_options (poll_id, position);
-create table if not exists poll_votes (
-  poll_id    bigint not null references polls on delete cascade,
-  option_id  bigint not null references poll_options on delete cascade,
-  user_id    uuid   not null references profiles on delete cascade,
-  created_at timestamptz not null default now(),
-  primary key (poll_id, option_id, user_id)
-);
-alter table messages add column if not exists poll_id bigint references polls on delete set null;
-
 create table if not exists channel_reads (
   user_id       uuid   not null references profiles on delete cascade,
   channel_id    bigint not null references channels on delete cascade,
@@ -583,7 +556,6 @@ begin
   new.reply_to   := old.reply_to;
   new.forwarded  := old.forwarded;
   new.attachment := old.attachment;
-  new.poll_id    := old.poll_id;
   -- pins change only through set_message_pinned()
   if coalesce(current_setting('app.pinning', true), '') <> '1' and auth.uid() is not null then
     new.pinned_at := old.pinned_at;
@@ -709,74 +681,6 @@ begin
   return m;
 end $$;
 
--- Opens a poll and announces it in a room (the main room by default) as a message from its author.
-create or replace function create_poll(p_question text, p_options text[], p_multi boolean default false,
-                                       p_channel bigint default null)
-returns bigint
-language plpgsql security definer set search_path = public as $$
-declare
-  ch channels;
-  pid bigint;
-  opts text[];
-  i int;
-begin
-  if not is_active() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  if char_length(trim(coalesce(p_question, ''))) = 0 then raise exception 'יש לכתוב שאלה'; end if;
-  select array_agg(left(trim(o), 100) order by n) into opts
-    from unnest(coalesce(p_options, '{}')) with ordinality as u(o, n) where trim(o) <> '';
-  if coalesce(cardinality(opts), 0) < 2 or cardinality(opts) > 10 then raise exception 'סקר צריך בין 2 ל-10 תשובות'; end if;
-  select * into ch from channels where id = coalesce(p_channel, (select id from channels where is_main));
-  if not found then raise exception 'החדר לא נמצא'; end if;
-  if ch.admin_only_post and not is_mod() then raise exception 'רק מנהלים כותבים בחדר הזה' using errcode = '42501'; end if;
-  insert into polls (author_id, question, multi) values (auth.uid(), left(trim(p_question), 300), coalesce(p_multi, false))
-    returning id into pid;
-  for i in 1 .. cardinality(opts) loop
-    insert into poll_options (poll_id, position, label) values (pid, i, opts[i]);
-  end loop;
-  insert into messages (channel_id, author_id, body, poll_id) values (ch.id, auth.uid(), 'סקר חדש: ' || left(trim(p_question), 300), pid);
-  return pid;
-end $$;
-
--- Replaces my answer. Single-choice polls take exactly one option.
-create or replace function vote_poll(p_poll bigint, p_options bigint[]) returns void
-language plpgsql security definer set search_path = public as $$
-declare
-  pl polls;
-  n int;
-begin
-  if not is_active() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  select * into pl from polls where id = p_poll;
-  if not found then raise exception 'הסקר לא נמצא'; end if;
-  if pl.closed then raise exception 'הסקר נסגר'; end if;
-  select count(*) into n from poll_options where poll_id = p_poll and id = any(coalesce(p_options, '{}'));
-  if n <> coalesce(cardinality(array(select distinct unnest(p_options))), 0) then raise exception 'תשובה לא תקינה'; end if;
-  if n = 0 or (not pl.multi and n > 1) then raise exception 'יש לבחור תשובה אחת'; end if;
-  delete from poll_votes where poll_id = p_poll and user_id = auth.uid();
-  insert into poll_votes (poll_id, option_id, user_id) select p_poll, o, auth.uid() from (select distinct unnest(p_options) as o) x;
-end $$;
-
--- Totals per option (who voted is never returned).
-create or replace function poll_results(p_poll bigint)
-returns table (option_id bigint, votes int, voters int)
-language sql stable security definer set search_path = public as $$
-  select o.id,
-         (select count(*)::int from poll_votes v where v.option_id = o.id),
-         (select count(distinct user_id)::int from poll_votes v where v.poll_id = p_poll)
-    from poll_options o
-   where o.poll_id = p_poll and is_active()
-   order by o.position;
-$$;
-
--- Author or content removers close a poll (no more answers) or reopen it.
-create or replace function set_poll_closed(p_poll bigint, p_closed boolean) returns void
-language plpgsql security definer set search_path = public as $$
-begin
-  if not exists (select 1 from polls where id = p_poll and is_active() and (author_id = auth.uid() or can_remove_content())) then
-    raise exception 'אין הרשאה' using errcode = '42501';
-  end if;
-  update polls set closed = p_closed where id = p_poll;
-end $$;
-
 -- Admin: approve a list of emails in advance. Existing pending accounts with those emails are let in now;
 -- the rest are let in the moment they sign up. Nothing is sent to anyone.
 create or replace function add_preapproved(p_entries jsonb)
@@ -865,7 +769,7 @@ begin
   if pw is null or extensions.crypt(coalesce(p_password, ''), pw) <> pw then
     raise exception 'הסיסמה שגויה' using errcode = '42501';
   end if;
-  truncate poll_votes, poll_options, polls, dm_reactions, dm_messages, dm_participants, dm_conversations, reactions, message_likes, stars,
+  truncate dm_reactions, dm_messages, dm_participants, dm_conversations, reactions, message_likes, stars,
     anon_authors, wall_posts, channel_reads, messages, channels, preapproved_emails, roster restart identity cascade;
   foreach t in array array['thread_likes', 'thread_reads', 'threads'] loop
     if to_regclass('public.' || t) is not null then execute format('truncate %I cascade', t); end if;
@@ -1113,10 +1017,6 @@ language sql stable security definer set search_path = public as $$
   ) s;
 $$;
 
-revoke execute on function create_poll(text, text[], boolean, bigint), vote_poll(bigint, bigint[]), poll_results(bigint),
-  set_poll_closed(bigint, boolean) from anon, public;
-grant execute on function create_poll(text, text[], boolean, bigint), vote_poll(bigint, bigint[]), poll_results(bigint),
-  set_poll_closed(bigint, boolean) to authenticated;
 revoke execute on function add_preapproved(jsonb) from anon, public;
 grant execute on function add_preapproved(jsonb) to authenticated;
 revoke execute on function owner_profile_id() from anon, public;
@@ -1142,9 +1042,6 @@ alter table reactions        enable row level security;
 alter table stars            enable row level security;
 alter table preapproved_emails enable row level security;
 alter table roster           enable row level security;
-alter table polls            enable row level security;
-alter table poll_options     enable row level security;
-alter table poll_votes       enable row level security;
 alter table message_likes    enable row level security;
 alter table dm_reactions     enable row level security;
 alter table anon_authors     enable row level security;
@@ -1217,17 +1114,6 @@ create policy roster_admin_select on roster for select using (is_admin());
 drop policy if exists roster_admin_delete on roster;
 create policy roster_admin_delete on roster for delete using (is_admin());
 
--- polls: visible to members; created, answered and closed only through the functions above.
--- A vote row is visible only to the voter (totals come from poll_results()).
-drop policy if exists polls_select on polls;
-create policy polls_select on polls for select using (is_active());
-drop policy if exists polls_delete on polls;
-create policy polls_delete on polls for delete using (is_active() and (author_id = auth.uid() or can_remove_content()));
-drop policy if exists poll_options_select on poll_options;
-create policy poll_options_select on poll_options for select using (is_active());
-drop policy if exists poll_votes_own on poll_votes;
-create policy poll_votes_own on poll_votes for select using (user_id = auth.uid());
-
 drop policy if exists stars_own on stars;
 create policy stars_own on stars for all using (user_id = auth.uid()) with check (user_id = auth.uid());
 
@@ -1288,7 +1174,7 @@ alter table message_likes replica identity full;
 do $$
 declare t text;
 begin
-  foreach t in array array['messages', 'reactions', 'message_likes', 'profiles', 'channels', 'wall_posts', 'dm_messages', 'dm_reactions', 'polls'] loop
+  foreach t in array array['messages', 'reactions', 'message_likes', 'profiles', 'channels', 'wall_posts', 'dm_messages', 'dm_reactions'] loop
     begin
       execute format('alter publication supabase_realtime add table %I', t);
     exception when duplicate_object then null;

@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { useApp } from '../AppContext';
 import { clockTime, dayLabel, fullDate, roleTag } from '../lib/format';
 import { quickReactions, rememberEmoji } from '../lib/emoji';
@@ -32,6 +33,8 @@ export interface StreamItem {
   starred?: boolean;
   quote?: { name: string; text: string; media?: boolean } | null;
   reactions: ReactionSummary[];
+  /** Announcement of a poll: shows a button to its page. */
+  pollId?: number | null;
   /** Owner only: the real author of an anonymous message. */
   revealedAuthor?: string | null;
   /** Reputation likes (rooms only). */
@@ -310,6 +313,11 @@ function Bubble({
                   <div className="b-text">
                     <RichText text={m.body} names={names} myName={me?.display_name} />
                   </div>
+                )}
+                {m.pollId && (
+                  <Link to={`/polls/${m.pollId}`} className="b-poll">
+                    <Icon name="ballot" size={18} /> למענה על הסקר
+                  </Link>
                 )}
               </>
             )}

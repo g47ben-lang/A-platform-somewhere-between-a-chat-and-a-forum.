@@ -57,6 +57,24 @@ export interface Message {
   forwarded: boolean;
   pinned_at: string | null;
   pinned_by: string | null;
+  /** Set on the automatic announcement of a poll. */
+  poll_id: number | null;
+}
+
+export interface Poll {
+  id: number;
+  author_id: string | null;
+  question: string;
+  multi: boolean;
+  closed: boolean;
+  created_at: string;
+}
+
+export interface PollOption {
+  id: number;
+  poll_id: number;
+  position: number;
+  label: string;
 }
 
 export interface WallPost {

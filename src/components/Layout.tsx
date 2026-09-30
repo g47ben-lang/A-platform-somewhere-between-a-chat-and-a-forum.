@@ -112,6 +112,10 @@ export default function Layout() {
             <Icon name="star" />
             <span className="nav-label">מסומנות בכוכב</span>
           </NavLink>
+          <NavLink to="/polls" className="nav-item">
+            <Icon name="ballot" />
+            <span className="nav-label">סקרים</span>
+          </NavLink>
           {isAdmin && pendingCount > 0 && (
             <NavLink to="/admin" className="nav-item">
               <Icon name="admin_panel_settings" />

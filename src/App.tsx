@@ -13,6 +13,7 @@ import SearchPage from './pages/SearchPage';
 import AdminPage from './pages/AdminPage';
 import NewPasswordPage from './pages/NewPasswordPage';
 import StarredPage from './pages/StarredPage';
+import PollsPage from './pages/PollsPage';
 import TermsGate from './pages/TermsGate';
 
 export default function App() {
@@ -68,6 +69,8 @@ export default function App() {
         <Route path="u/:userId" element={<ProfilePage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="starred" element={<StarredPage />} />
+        <Route path="polls" element={<PollsPage />} />
+        <Route path="polls/:pollId" element={<PollsPage />} />
         <Route path="search" element={<SearchPage />} />
         <Route path="admin" element={isAdmin ? <AdminPage /> : <Navigate to="/" />} />
         {/* links from earlier versions */}

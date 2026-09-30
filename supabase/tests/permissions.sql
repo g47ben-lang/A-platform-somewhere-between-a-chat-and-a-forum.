@@ -373,6 +373,37 @@ update profiles set join_seen = true where id = '00000000-0000-0000-0000-0000000
 select pg_temp.check((select join_seen from profiles where id = '00000000-0000-0000-0000-0000000000f2'), 'admin marks a join as seen');
 reset role;
 
+-- ===== Polls =====
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+select create_poll('לאן יוצאים?', array['חברון', ' ', 'ירושלים', 'צפת'], false) as poll_id \gset
+select pg_temp.check((select count(*) = 3 from poll_options where poll_id = :poll_id), 'poll created; blank answers dropped');
+select pg_temp.check((select author_id = auth.uid() and body like 'סקר חדש:%' and channel_id = (select id from channels where is_main) from messages where poll_id = :poll_id), 'poll announced in the main room');
+select pg_temp.denied($$select create_poll('x', array['רק אחת'])$$, 'a poll needs at least two answers');
+update messages set poll_id = null where poll_id = :poll_id;
+select pg_temp.check((select count(*) = 1 from messages where poll_id = :poll_id), 'announcement stays linked to its poll');
+reset role;
+select id as opt1 from poll_options where poll_id = :poll_id and position = 1 \gset
+select id as opt2 from poll_options where poll_id = :poll_id and position = 2 \gset
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select vote_poll(:poll_id, array[:opt1]::bigint[]);
+select vote_poll(:poll_id, array[:opt2]::bigint[]);
+select pg_temp.denied('select vote_poll(' || :poll_id || ', array[' || :opt1 || ',' || :opt2 || ']::bigint[])', 'single-choice poll takes one answer');
+select pg_temp.denied('select vote_poll(' || :poll_id || ', array[-1]::bigint[])', 'answer must belong to the poll');
+select pg_temp.denied('select set_poll_closed(' || :poll_id || ', true)', 'only the author closes a poll');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+select vote_poll(:poll_id, array[:opt2]::bigint[]);
+select pg_temp.check((select count(*) = 1 from poll_votes), 'votes are private: only my own row is visible');
+select pg_temp.check((select votes = 2 and voters = 2 from poll_results(:poll_id) where option_id = :opt2), 'results count answers (changed vote counted once)');
+select pg_temp.check((select votes = 0 from poll_results(:poll_id) where option_id = :opt1), 'changed vote leaves no trace');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+select set_poll_closed(:poll_id, true);
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select pg_temp.denied('select vote_poll(' || :poll_id || ', array[' || :opt1 || ']::bigint[])', 'closed poll takes no answers');
+reset role;
+
 -- ===== Owner (super admin) and inspector =====
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
 select send_dm(start_dm('00000000-0000-0000-0000-0000000000f2', false), 'סוד בין שניים');
@@ -429,7 +460,7 @@ select reset_everything('owner-pass');
 reset role;
 select pg_temp.check((select count(*) = 0 from auth.users) and (select count(*) = 0 from profiles), 'reset removes every account');
 select pg_temp.check((select count(*) = 0 from messages) and (select count(*) = 0 from dm_conversations)
-  and (select count(*) = 0 from roster) and (select count(*) = 0 from anon_authors), 'reset removes all content');
+  and (select count(*) = 0 from roster) and (select count(*) = 0 from anon_authors) and (select count(*) = 0 from polls), 'reset removes all content');
 select pg_temp.check((select count(*) = 1 and bool_and(is_main) from channels), 'reset leaves an empty main room');
 insert into auth.users (id, email) values ('00000000-0000-0000-0000-0000000000e0', 'shmuelshmuel@gmail.com');
 select pg_temp.check((select status = 'active' and role = 'admin' from profiles where id = '00000000-0000-0000-0000-0000000000e0'), 'owner signs up again after reset');

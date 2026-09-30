@@ -1003,3 +1003,27 @@ button.author:hover, .title-link:hover { text-decoration: underline; }
 .owner-dm li { padding: 8px 12px; border-radius: 10px; background: var(--surface-2); font-size: 14px; white-space: pre-wrap; word-break: break-word; }
 .owner-dm-head { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; margin-bottom: 2px; }
 .owner-dm-head time { color: var(--muted); }
+
+/* Polls */
+.polls-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.back-link { display: inline-flex; align-items: center; gap: 6px; color: var(--primary); text-decoration: none; margin-bottom: 12px; font-weight: 500; }
+.poll-card { background: var(--surface); border: 1px solid var(--outline-variant, var(--outline)); border-radius: 16px; padding: 20px; }
+.poll-head { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 16px; }
+.poll-head > .icon { color: var(--primary); margin-top: 4px; }
+.poll-question { font-size: 20px; font-weight: 500; margin: 0 0 4px; line-height: 1.4; }
+.poll-options { display: grid; gap: 8px; }
+.poll-option { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--outline); cursor: pointer; }
+.poll-option.on { border-color: var(--primary); background: var(--primary-container, var(--surface-2)); }
+.poll-option input { width: 18px; height: 18px; accent-color: var(--primary); }
+.poll-result { position: relative; display: flex; justify-content: space-between; gap: 10px; padding: 12px 14px; border-radius: 12px; background: var(--surface-2); overflow: hidden; }
+.poll-bar { position: absolute; inset-block: 0; inset-inline-start: 0; background: var(--primary-container, #d3e3fd); transition: width .4s; }
+.poll-result > span { position: relative; display: inline-flex; align-items: center; gap: 6px; }
+.poll-result.mine .poll-label { font-weight: 600; }
+.poll-count { color: var(--text-2); font-size: 13px; white-space: nowrap; }
+.poll-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; }
+.poll-manage { margin-top: 16px; }
+.poll-edit-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+.poll-edit-row input { flex: 1; min-width: 0; }
+.poll-add { align-self: flex-start; }
+.b-poll { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; padding: 6px 14px; border-radius: 999px; background: var(--surface); color: var(--primary); font-weight: 500; font-size: 14px; text-decoration: none; }
+.bubble .b-poll:hover { background: var(--hover); }
