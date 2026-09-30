@@ -1,5 +1,5 @@
 export type MemberStatus = 'pending' | 'active' | 'banned';
-export type MemberRole = 'member' | 'moderator' | 'admin';
+export type MemberRole = 'member' | 'inspector' | 'moderator' | 'admin';
 
 export interface Profile {
   id: string;

@@ -4,7 +4,7 @@ import { useApp } from '../AppContext';
 import { supabase } from '../supabase';
 import type { MemberRole, Message, Profile, Room } from '../types';
 import { removeFile, useSignedUrl } from '../lib/media';
-import { errorText, ROLE_LABEL, STATUS_LABEL, timeAgo } from '../lib/format';
+import { errorText, OWNER_LABEL, ROLE_CHOICES, ROLE_LABEL, STATUS_LABEL, timeAgo } from '../lib/format';
 import Avatar, { SpaceTile } from '../components/Avatar';
 import { useFeedback } from '../components/Feedback';
 import Icon from '../components/Icon';
@@ -12,12 +12,14 @@ import { useProfileCard } from '../components/ProfileCard';
 import RoomDialog from '../components/RoomDialog';
 import PreapprovedAdmin from '../components/PreapprovedAdmin';
 import RosterAdmin from '../components/RosterAdmin';
+import OwnerTools from '../components/OwnerTools';
 
-type Tab = 'members' | 'preapproved' | 'anonymous' | 'rooms' | 'media';
+type Tab = 'members' | 'preapproved' | 'anonymous' | 'rooms' | 'media' | 'owner';
 type ProfilePatch = Partial<Pick<Profile, 'status' | 'role' | 'accept_anonymous' | 'can_send_anonymous' | 'join_seen'>>;
 
 export default function AdminPage() {
-  const { profiles, rooms, me, reloadProfiles, reloadRooms, nameOf } = useApp();
+  const { profiles, rooms, me, reloadProfiles, reloadRooms, nameOf, isOwner, ownerId } = useApp();
+  const showOwnerTab = isOwner || !ownerId;
   const { confirm, toast } = useFeedback();
   const openCard = useProfileCard();
   const [tab, setTab] = useState<Tab>('members');
@@ -112,6 +114,11 @@ export default function AdminPage() {
           <button className={tab === 'preapproved' ? 'on' : ''} onClick={() => setTab('preapproved')} role="tab">
             <Icon name="check" size={20} /> אישור מראש
           </button>
+          {showOwnerTab && (
+            <button className={tab === 'owner' ? 'on' : ''} onClick={() => setTab('owner')} role="tab">
+              <Icon name="shield_person" size={20} /> {OWNER_LABEL}
+            </button>
+          )}
         </div>
 
         {(tab === 'members' || tab === 'anonymous') && (
@@ -199,12 +206,16 @@ export default function AdminPage() {
                       </div>
                     </div>
                     <div className="row gap">
-                      <select value={p.role} onChange={(e) => updateOne(p, { role: e.target.value as MemberRole })} aria-label="תפקיד">
-                        {(Object.keys(ROLE_LABEL) as MemberRole[]).map((r) => (
-                          <option key={r} value={r}>{ROLE_LABEL[r]}</option>
-                        ))}
-                      </select>
-                      {p.status === 'banned' ? (
+                      {p.id === ownerId ? (
+                        <span className="role-tag">{OWNER_LABEL}</span>
+                      ) : (
+                        <select value={p.role} onChange={(e) => updateOne(p, { role: e.target.value as MemberRole })} aria-label="תפקיד">
+                          {(ROLE_CHOICES as readonly MemberRole[]).concat(ROLE_CHOICES.includes(p.role as never) ? [] : [p.role]).map((r) => (
+                            <option key={r} value={r}>{ROLE_LABEL[r]}</option>
+                          ))}
+                        </select>
+                      )}
+                      {p.id === ownerId ? null : p.status === 'banned' ? (
                         <button className="btn text" onClick={() => updateOne(p, { status: 'active' })}>ביטול חסימה</button>
                       ) : (
                         <button className="btn text danger" onClick={() => ban(p)}>חסימה</button>
@@ -272,6 +283,8 @@ export default function AdminPage() {
         )}
 
         {tab === 'media' && <MediaAdmin />}
+        {tab === 'owner' && showOwnerTab && <OwnerTools />}
+
         {tab === 'preapproved' && (
           <>
             <RosterAdmin />

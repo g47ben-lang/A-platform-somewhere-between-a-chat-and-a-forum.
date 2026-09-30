@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { appUrl, supabase, SITE_NAME } from '../supabase';
+import { appUrl, OWNER_EMAIL, OWNER_LOGIN, supabase, SITE_NAME } from '../supabase';
 import { errorText } from '../lib/format';
 import Icon from '../components/Icon';
 import PasswordFields, { passwordProblem } from '../components/PasswordFields';
@@ -37,7 +37,8 @@ export default function AuthPage() {
     setBusy(true);
     try {
       if (mode === 'login') {
-        const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+        const id = email.trim();
+        const { error } = await supabase.auth.signInWithPassword({ email: id.toLowerCase() === OWNER_LOGIN ? OWNER_EMAIL : id, password });
         if (error) throw error;
       } else if (mode === 'signup') {
         const { data, error } = await supabase.auth.signUp({
@@ -109,7 +110,7 @@ export default function AuthPage() {
             <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} required />
             <span>
               <strong>תקנון תוכן:</strong> אני מצהיר שאעלה לצ'אט רק תכנים התואמים את מדיניות נטפרי, כדי למנוע את חסימת הצ'אט.
-              ידוע לי שמשתמש שיעבור על כך יוסר מהקהילה לאלתר.
+              ידוע לי שמשתמש שיעבור על כך יוסר מהקהילה לאלתר. ידוע לי גם שאין בצ'אט הודעה שלא ניתן לדעת מי כתב אותה: מנהל-העל יכול לראות גם מי שלח הודעה אנונימית ולקרוא צ'אטים פרטיים. הוא ישתמש בזה רק במקרי חירום ממש.
             </span>
           </label>
         )}

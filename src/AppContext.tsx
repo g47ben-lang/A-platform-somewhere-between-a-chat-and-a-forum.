@@ -18,6 +18,11 @@ interface AppState {
   online: Set<string>;
   isMod: boolean;
   isAdmin: boolean;
+  /** Admins, moderators and inspectors: may delete any room message, wall post or file. */
+  canRemove: boolean;
+  /** The owner ("מנהל-על"): the only one who sees anonymous authors and all private chats. */
+  isOwner: boolean;
+  ownerId: string | null;
   recovering: boolean;
   endRecovery: () => void;
   nameOf: (id: string | null | undefined) => string;
@@ -45,7 +50,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [online, setOnline] = useState<Set<string>>(new Set());
   const [recovering, setRecovering] = useState(false);
+  const [ownerId, setOwnerId] = useState<string | null>(null);
   const meRef = useRef<Profile | null>(null);
+  const convRef = useRef(conversations);
+  convRef.current = conversations;
   const profilesRef = useRef(profiles);
   meRef.current = me;
   profilesRef.current = profiles;
@@ -76,6 +84,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [uid]);
 
   const reloadProfiles = useCallback(async () => {
+    supabase.rpc('owner_profile_id').then(({ data }) => setOwnerId((data as string | null) ?? null));
     const { data } = await supabase.from('profiles').select('*').order('display_name');
     if (data) setProfiles(new Map((data as Profile[]).map((p) => [p.id, p])));
   }, []);
@@ -138,7 +147,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           reloadConversations();
           const m = p.new as DmMessage;
           const my = meRef.current;
-          if (p.eventType === 'INSERT' && my && m.sender_id !== my.id) {
+          // The owner receives every DM event; notify only about his own conversations.
+          if (p.eventType === 'INSERT' && my && m.sender_id !== my.id && convRef.current.some((c) => c.id === m.conversation_id)) {
             // sender_id null is either the anonymous other side or my own hidden self;
             // the notification only fires while the tab is hidden, so a self-echo is harmless.
             const who = m.sender_id ? profilesRef.current.get(m.sender_id)?.display_name ?? 'הודעה חדשה' : 'הודעה אנונימית';
@@ -185,6 +195,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       online,
       isMod: active && (me?.role === 'moderator' || me?.role === 'admin'),
       isAdmin: active && me?.role === 'admin',
+      canRemove: active && (me?.role === 'inspector' || me?.role === 'moderator' || me?.role === 'admin'),
+      isOwner: active && !!me && me.id === ownerId,
+      ownerId,
       recovering,
       endRecovery: () => setRecovering(false),
       nameOf,
@@ -193,7 +206,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       reloadRooms,
       reloadConversations,
     }),
-    [session, loading, me, profiles, rooms, schemaOutdated, conversations, online, active, recovering, nameOf, reloadMe, reloadProfiles, reloadRooms, reloadConversations],
+    [session, loading, me, profiles, rooms, schemaOutdated, conversations, online, active, ownerId, recovering, nameOf, reloadMe, reloadProfiles, reloadRooms, reloadConversations],
   );
 
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;

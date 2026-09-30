@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useApp } from '../AppContext';
 import { supabase, SITE_NAME } from '../supabase';
 import { subscribe } from '../lib/realtime';
-import { errorText } from '../lib/format';
+import { errorText, roleTag } from '../lib/format';
 import { useTyping } from '../lib/useTyping';
 import { messageLink, summarizeReactions } from '../lib/chat';
 import { removeFile } from '../lib/media';
@@ -29,7 +29,7 @@ export default function RoomPage() {
   const params = useParams();
   const [search, setSearch] = useSearchParams();
   const linkedId = Number(search.get('m')) || null;
-  const { rooms, mainRoom, me, isMod, profiles, online, nameOf, reloadRooms } = useApp();
+  const { rooms, mainRoom, me, isMod, canRemove, isOwner, ownerId, profiles, online, nameOf, reloadRooms } = useApp();
   const room = params.roomId ? rooms.find((r) => r.id === Number(params.roomId)) : mainRoom;
   const roomId = room?.id ?? null;
   const { confirm, toast } = useFeedback();
@@ -41,6 +41,10 @@ export default function RoomPage() {
   const [reactions, setReactions] = useState<Reaction[]>([]);
   const [likes, setLikes] = useState<{ message_id: number; user_id: string }[]>([]);
   const [mineAnon, setMineAnon] = useState<Set<number>>(new Set());
+  // Real authors of anonymous messages: RLS returns only my own rows, except to the owner who gets all.
+  const [anonAuthor, setAnonAuthor] = useState<Map<number, string>>(new Map());
+  const meIdRef = useRef<string | undefined>(undefined);
+  meIdRef.current = me?.id;
   const [stars, setStars] = useState<Set<number>>(new Set());
   const [pinned, setPinned] = useState<Message[]>([]);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
@@ -69,14 +73,18 @@ export default function RoomPage() {
     const anonIds = list.filter((m) => m.anonymous).map((m) => m.id);
     const [r, a, s, l] = await Promise.all([
       supabase.from('reactions').select('message_id,user_id,emoji').in('message_id', ids),
-      anonIds.length ? supabase.from('anon_authors').select('item_id').eq('kind', 'message').in('item_id', anonIds) : Promise.resolve({ data: [] }),
+      anonIds.length ? supabase.from('anon_authors').select('item_id,author_id').eq('kind', 'message').in('item_id', anonIds) : Promise.resolve({ data: [] }),
       supabase.from('stars').select('item_id').eq('kind', 'room').in('item_id', ids),
       supabase.from('message_likes').select('message_id,user_id').in('message_id', ids),
     ]);
     const idSet = new Set(ids);
     if (l.data) setLikes((prev) => [...prev.filter((x) => !idSet.has(x.message_id)), ...(l.data as { message_id: number; user_id: string }[])]);
     if (r.data) setReactions((prev) => [...prev.filter((x) => !idSet.has(x.message_id)), ...(r.data as Reaction[])]);
-    if (a.data) setMineAnon((prev) => new Set([...prev, ...(a.data as { item_id: number }[]).map((x) => x.item_id)]));
+    if (a.data) {
+      const rows = a.data as { item_id: number; author_id: string }[];
+      setMineAnon((prev) => new Set([...prev, ...rows.filter((x) => x.author_id === meIdRef.current).map((x) => x.item_id)]));
+      setAnonAuthor((prev) => new Map([...prev, ...rows.map((x) => [x.item_id, x.author_id] as [number, string])]));
+    }
     if (s.data) setStars((prev) => new Set([...prev, ...(s.data as { item_id: number }[]).map((x) => x.item_id)]));
   }, []);
 
@@ -179,6 +187,7 @@ export default function RoomPage() {
         authorId: m.author_id,
         anonymous: m.anonymous,
         mine: m.author_id === me?.id || mineAnon.has(m.id),
+        revealedAuthor: isOwner && m.anonymous && anonAuthor.has(m.id) ? nameOf(anonAuthor.get(m.id)) : null,
         createdAt: m.created_at,
         editedAt: m.edited_at,
         deleted: m.deleted,
@@ -203,7 +212,7 @@ export default function RoomPage() {
         })(),
       };
     });
-  }, [messages, reactions, likes, mineAnon, stars, byId, me, nameOf]);
+  }, [messages, reactions, likes, mineAnon, anonAuthor, isOwner, stars, byId, me, nameOf]);
 
   async function loadOlder() {
     const first = messages?.[0];
@@ -295,7 +304,7 @@ export default function RoomPage() {
     });
     if (!ok) return;
     const { error } = await supabase.from('messages').update({ deleted: true }).eq('id', id);
-    if (!error && isMod && target?.attachment) removeFile(target.attachment.path);
+    if (!error && canRemove && target?.attachment) removeFile(target.attachment.path);
     if (error) toast(errorText(error), 'error');
     else setMessages((prev) => prev?.map((x) => (x.id === id ? { ...x, deleted: true, body: '', attachment: null } : x)) ?? prev);
   }
@@ -349,7 +358,7 @@ export default function RoomPage() {
     a.push({ icon: 'link', label: 'העתקת הקישור להודעה', onClick: () => copy(messageLink(room!.is_main ? '/' : `/room/${roomId}`, m.id), 'הקישור הועתק') });
     if (m.body) a.push({ icon: 'content_copy', label: 'העתקת הטקסט', onClick: () => copy(m.body, 'הטקסט הועתק') });
     if (item.mine && m.body) a.push({ icon: 'edit', label: 'עריכה', onClick: () => { setReplyTo(null); setEditing(m); composer.current?.setText(m.body); }, divider: true });
-    if (item.mine || isMod) a.push({ icon: 'delete', label: 'מחיקה', onClick: () => remove(m.id), danger: true, divider: !(item.mine && m.body) });
+    if (item.mine || canRemove) a.push({ icon: 'delete', label: 'מחיקה', onClick: () => remove(m.id), danger: true, divider: !(item.mine && m.body) });
     return a;
   }
 
@@ -503,7 +512,7 @@ export default function RoomPage() {
                   <button onClick={(e) => openCard(p.id, e.currentTarget)}>
                     <Avatar id={p.id} name={p.display_name} size={32} online={online.has(p.id)} />
                     <span className="grow">{p.display_name}</span>
-                    {p.role !== 'member' && <span className="role-tag">{p.role === 'admin' ? 'מנהל' : 'מנחה'}</span>}
+                    {roleTag(p, ownerId) && <span className="role-tag">{roleTag(p, ownerId)}</span>}
                   </button>
                 </li>
               ))}

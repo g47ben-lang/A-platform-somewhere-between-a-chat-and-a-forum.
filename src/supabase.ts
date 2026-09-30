@@ -14,4 +14,9 @@ export const supabase = createClient(url || 'http://localhost', key || 'missing-
 /** Where email links (confirmation, password reset) should land: the app root, without any hash route. */
 export const appUrl = () => window.location.origin + window.location.pathname;
 
+/** The site owner ("מנהל-על"). Must match owner_email() in supabase/schema.sql. */
+export const OWNER_EMAIL = 'shmuelshmuel@gmail.com';
+/** Short login name the owner may type instead of his email. */
+export const OWNER_LOGIN = 'shmuel';
+
 export const SITE_NAME = (import.meta.env.VITE_SITE_NAME as string | undefined) || 'מערכת ועד קמ"ד ישיבת חברון';

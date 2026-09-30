@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useApp } from '../AppContext';
 import { supabase } from '../supabase';
 import { subscribe } from '../lib/realtime';
-import { errorText, fullDate, levelFor, ROLE_LABEL, timeAgo } from '../lib/format';
+import { errorText, fullDate, levelFor, roleTag, timeAgo } from '../lib/format';
 import type { MemberStats, WallPost } from '../types';
 import Avatar from '../components/Avatar';
 import Composer from '../components/Composer';
@@ -14,7 +14,7 @@ import { startConversation } from '../components/NewChatDialog';
 
 export default function ProfilePage() {
   const userId = useParams().userId!;
-  const { me, profiles, online, isMod, reloadConversations } = useApp();
+  const { me, profiles, online, canRemove, ownerId, reloadConversations } = useApp();
   const { confirm, toast } = useFeedback();
   const navigate = useNavigate();
   const profile = profiles.get(userId);
@@ -31,10 +31,10 @@ export default function ProfilePage() {
     setWall(list);
     const ids = list.filter((w) => w.anonymous).map((w) => w.id);
     if (ids.length) {
-      const { data: a } = await supabase.from('anon_authors').select('item_id').eq('kind', 'wall').in('item_id', ids);
+      const { data: a } = await supabase.from('anon_authors').select('item_id').eq('kind', 'wall').eq('author_id', me?.id ?? '').in('item_id', ids);
       setMineAnon(new Set((a ?? []).map((x) => x.item_id as number)));
     }
-  }, [userId]);
+  }, [userId, me?.id]);
 
   useEffect(() => {
     setStats(null);
@@ -96,7 +96,7 @@ export default function ProfilePage() {
           <div className="profile-main">
             <h1>{profile.display_name}</h1>
             <div className="profile-meta">
-              {profile.role !== 'member' && <span className="role-tag">{ROLE_LABEL[profile.role]}</span>}
+              {roleTag(profile, ownerId) && <span className="role-tag">{roleTag(profile, ownerId)}</span>}
               <span>{online.has(profile.id) ? 'מחובר עכשיו' : 'לא מחובר'}</span>
               <span>·</span>
               <span>חבר מאז {fullDate(profile.created_at)}</span>
@@ -164,7 +164,7 @@ export default function ProfilePage() {
             <div className="wall-list">
               {wall.map((w) => {
                 const mine = w.author_id === me?.id || mineAnon.has(w.id);
-                const canDelete = mine || isMe || isMod;
+                const canDelete = mine || isMe || canRemove;
                 return (
                   <div className="wall-item" key={w.id} title={timeAgo(w.created_at)}>
                     <MessageRow

@@ -373,6 +373,43 @@ update profiles set join_seen = true where id = '00000000-0000-0000-0000-0000000
 select pg_temp.check((select join_seen from profiles where id = '00000000-0000-0000-0000-0000000000f2'), 'admin marks a join as seen');
 reset role;
 
+-- ===== Owner (super admin) and inspector =====
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+select send_dm(start_dm('00000000-0000-0000-0000-0000000000f2', false), 'סוד בין שניים');
+reset role;
+select count(*) as anon_total from anon_authors \gset
+select count(*) as dm_total from dm_messages \gset
+select count(*) as conv_total from dm_conversations \gset
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+select pg_temp.denied($$select reset_everything('wrong')$$, 'reset needs the caller''s own password');
+reset role;
+insert into auth.users (id, email, raw_user_meta_data) values ('00000000-0000-0000-0000-0000000000e0', 'ShmuelShmuel@gmail.com', '{"display_name":"משהו"}');
+select pg_temp.check((select status = 'active' and role = 'admin' and display_name = 'ss' from profiles where id = '00000000-0000-0000-0000-0000000000e0'), 'owner email signs up as active admin "ss"');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+update profiles set role = 'member', status = 'banned' where id = '00000000-0000-0000-0000-0000000000e0';
+select pg_temp.check((select status = 'active' and role = 'admin' from profiles where id = '00000000-0000-0000-0000-0000000000e0'), 'no one demotes or bans the owner');
+select pg_temp.check((select owner_profile_id() = '00000000-0000-0000-0000-0000000000e0'), 'members can tell who the owner is');
+select pg_temp.check((select count(*) = 0 from anon_authors), 'regular admins still cannot see anonymous authors');
+select pg_temp.check((select count(*) = 0 from dm_messages where body = 'סוד בין שניים'), 'regular admins still cannot read others'' DMs');
+select pg_temp.denied($$select reset_everything('x')$$, 'once the owner exists, only he may reset');
+update profiles set role = 'inspector' where id = '00000000-0000-0000-0000-0000000000f2';
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000e0');
+select pg_temp.check((select :anon_total > 0 and count(*) = :anon_total from anon_authors), 'owner sees who wrote anonymous content');
+select pg_temp.check((select :dm_total > 0 and count(*) = :dm_total from dm_messages), 'owner reads all DMs');
+select pg_temp.check((select count(*) = :conv_total from dm_conversations), 'owner sees all conversations');
+select pg_temp.check((select count(*) > 0 from dm_participants where hidden), 'owner sees the hidden side of anonymous DMs');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000f2');
+select pg_temp.check((select role::text = 'inspector' from profiles where id = auth.uid()), 'admin appoints an inspector');
+update messages set deleted = true where body = 'עריכה אנונימית';
+select pg_temp.check((select deleted from messages where body = '' and anonymous and deleted limit 1), 'inspector deletes any message');
+update messages set body = 'שכתוב' where not deleted and author_id <> auth.uid();
+select pg_temp.check((select count(*) = 0 from messages where body = 'שכתוב'), 'inspector cannot rewrite messages');
+select pg_temp.check((select count(*) = 0 from anon_authors), 'inspector cannot see anonymous authors');
+select pg_temp.check((select count(*) = 0 from preapproved_emails), 'inspector is not an admin');
+reset role;
+
 -- ===== Bans =====
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
 update profiles set status = 'banned' where id = '00000000-0000-0000-0000-00000000000c';
@@ -383,6 +420,19 @@ select pg_temp.check((select count(*) = 0 from dm_messages), 'banned user cannot
 select pg_temp.denied($$select send_dm(1, 'x')$$, 'banned user cannot send DMs');
 select pg_temp.check((select count(*) = 0 from my_rooms()), 'banned user gets no rooms');
 reset role;
+
+-- ===== Reset (last: wipes everything) =====
+update auth.users set encrypted_password = extensions.crypt('owner-pass', extensions.gen_salt('bf', 4)) where id = '00000000-0000-0000-0000-0000000000e0';
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000e0');
+select pg_temp.denied($$select reset_everything('wrong')$$, 'wrong password does not reset');
+select reset_everything('owner-pass');
+reset role;
+select pg_temp.check((select count(*) = 0 from auth.users) and (select count(*) = 0 from profiles), 'reset removes every account');
+select pg_temp.check((select count(*) = 0 from messages) and (select count(*) = 0 from dm_conversations)
+  and (select count(*) = 0 from roster) and (select count(*) = 0 from anon_authors), 'reset removes all content');
+select pg_temp.check((select count(*) = 1 and bool_and(is_main) from channels), 'reset leaves an empty main room');
+insert into auth.users (id, email) values ('00000000-0000-0000-0000-0000000000e0', 'shmuelshmuel@gmail.com');
+select pg_temp.check((select status = 'active' and role = 'admin' from profiles where id = '00000000-0000-0000-0000-0000000000e0'), 'owner signs up again after reset');
 
 \o
 \echo ALL PERMISSION TESTS PASSED

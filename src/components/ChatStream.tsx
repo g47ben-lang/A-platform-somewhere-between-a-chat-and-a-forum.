@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useApp } from '../AppContext';
-import { clockTime, dayLabel, fullDate } from '../lib/format';
+import { clockTime, dayLabel, fullDate, roleTag } from '../lib/format';
 import { quickReactions, rememberEmoji } from '../lib/emoji';
 import { useSignedUrl } from '../lib/media';
 import type { Attachment } from '../types';
@@ -32,6 +32,8 @@ export interface StreamItem {
   starred?: boolean;
   quote?: { name: string; text: string; media?: boolean } | null;
   reactions: ReactionSummary[];
+  /** Owner only: the real author of an anonymous message. */
+  revealedAuthor?: string | null;
   /** Reputation likes (rooms only). */
   likes?: { count: number; liked: boolean; names: string[] };
 }
@@ -226,7 +228,7 @@ function Bubble({
   onOpenImage: (url: string) => void;
   onMediaLoad: () => void;
 }) {
-  const { profiles, online, nameOf, me } = useApp();
+  const { profiles, online, nameOf, me, ownerId } = useApp();
   const openCard = useProfileCard();
   const [picker, setPicker] = useState<{ x: number; y: number } | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
@@ -274,11 +276,14 @@ function Bubble({
         {(showHead || (!grouped && m.mine && m.anonymous)) && (
           <div className="b-head">
             {isAnon ? (
-              <span className="anon-author">אנונימי{m.mine && <span className="you-tag">שלך</span>}</span>
+              <span className="anon-author">
+                אנונימי{m.mine && <span className="you-tag">שלך</span>}
+                {m.revealedAuthor && <span className="revealed-tag" title="גלוי רק למנהל-העל">{m.revealedAuthor}</span>}
+              </span>
             ) : (
               <button className="author" onClick={(e) => openCard(m.authorId!, e.currentTarget)}>{nameOf(m.authorId)}</button>
             )}
-            {author && author.role !== 'member' && <span className="role-tag">{author.role === 'admin' ? 'מנהל' : 'מנחה'}</span>}
+            {author && roleTag(author, ownerId) && <span className="role-tag">{roleTag(author, ownerId)}</span>}
             <time title={fullDate(m.createdAt)}>{clockTime(m.createdAt)}</time>
           </div>
         )}

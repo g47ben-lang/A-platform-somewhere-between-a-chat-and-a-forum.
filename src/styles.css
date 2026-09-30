@@ -994,3 +994,12 @@ button.author:hover, .title-link:hover { text-decoration: underline; }
 .join-info ul { margin: 0; padding-inline-start: 18px; display: grid; gap: 4px; }
 .join-info b { color: var(--text); font-weight: 500; }
 .join-info p { margin: 8px 0 0; }
+.revealed-tag { font-size: 11px; font-weight: 500; padding: 0 6px; border-radius: 4px; background: var(--danger-container, #fde7e9); color: var(--danger); }
+.btn.outlined.danger-outline { color: var(--danger); border-color: var(--danger); }
+.danger-zone { margin-top: 24px; }
+.reset-explain { font-size: 14px; line-height: 1.6; color: var(--text-2); margin-bottom: 12px; }
+.reset-explain ul { margin: 4px 0 10px; padding-inline-start: 20px; }
+.owner-dm { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; max-height: 60vh; overflow-y: auto; }
+.owner-dm li { padding: 8px 12px; border-radius: 10px; background: var(--surface-2); font-size: 14px; white-space: pre-wrap; word-break: break-word; }
+.owner-dm-head { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; margin-bottom: 2px; }
+.owner-dm-head time { color: var(--muted); }

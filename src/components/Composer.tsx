@@ -299,7 +299,7 @@ const Composer = forwardRef<ComposerHandle, Props>(function Composer(
       </div>
       {emojiAt && <EmojiPicker anchor={emojiAt} onClose={() => setEmojiAt(null)} onPick={(e) => { setEmojiAt(null); insertEmoji(e); }} />}
       {pending && <div className="upload-note">לפי התקנון: מעלים רק תכנים התואמים את מדיניות נטפרי.</div>}
-      {anonymous && <div className="anon-hint">ההודעה תופיע בשם "אנונימי". אף אחד, כולל המנהלים, לא יראה מי שלח.</div>}
+      {anonymous && <div className="anon-hint">ההודעה תופיע בשם "אנונימי". החברים והמנהלים לא יראו מי שלח; רק מנהל-העל יכול לדעת, למקרי חירום בלבד.</div>}
     </div>
   );
 });

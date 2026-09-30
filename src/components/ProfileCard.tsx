@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../AppContext';
 import { supabase } from '../supabase';
-import { levelFor, ROLE_LABEL } from '../lib/format';
+import { levelFor, roleTag } from '../lib/format';
 import type { MemberStats } from '../types';
 import Avatar from './Avatar';
 import { useFeedback } from './Feedback';
@@ -53,7 +53,7 @@ export function ProfileCardProvider({ children }: { children: ReactNode }) {
 }
 
 function Card({ userId, x, y, onClose }: CardState & { onClose: () => void }) {
-  const { profiles, me, online, reloadConversations } = useApp();
+  const { profiles, me, online, reloadConversations, ownerId } = useApp();
   const { toast } = useFeedback();
   const navigate = useNavigate();
   const ref = useRef<HTMLDivElement>(null);
@@ -112,7 +112,7 @@ function Card({ userId, x, y, onClose }: CardState & { onClose: () => void }) {
           <div className="pop-names">
             <div className="pop-name">{p.display_name}</div>
             <div className="pop-sub">
-              {p.role !== 'member' && <span className="role-tag">{ROLE_LABEL[p.role]}</span>}
+              {roleTag(p, ownerId) && <span className="role-tag">{roleTag(p, ownerId)}</span>}
               <span>{online.has(p.id) ? 'מחובר עכשיו' : 'לא מחובר'}</span>
             </div>
           </div>

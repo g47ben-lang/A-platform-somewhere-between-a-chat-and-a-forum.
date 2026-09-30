@@ -50,7 +50,16 @@ export function initials(name: string): string {
   return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || '?';
 }
 
-export const ROLE_LABEL = { member: 'חבר', moderator: 'מנחה', admin: 'מנהל' } as const;
+export const ROLE_LABEL = { member: 'חבר', inspector: 'מפקח', moderator: 'מנחה', admin: 'מנהל' } as const;
+/** Roles an admin can hand out (the owner, "מנהל-על", is fixed by his login email). */
+export const ROLE_CHOICES = ['member', 'inspector', 'admin'] as const;
+export const OWNER_LABEL = 'מנהל-על';
+
+/** The tag shown next to a member's name, or null for plain members. */
+export function roleTag(p: { id: string; role: keyof typeof ROLE_LABEL }, ownerId: string | null): string | null {
+  if (ownerId && p.id === ownerId) return OWNER_LABEL;
+  return p.role === 'member' ? null : ROLE_LABEL[p.role];
+}
 export const STATUS_LABEL = { pending: 'ממתין לאישור', active: 'פעיל', banned: 'חסום' } as const;
 
 export interface Level {

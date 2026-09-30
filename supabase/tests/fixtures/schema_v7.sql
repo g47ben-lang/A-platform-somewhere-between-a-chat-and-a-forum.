@@ -13,11 +13,7 @@
 --   emoji reactions are expression only and do not count
 --
 -- Anonymity: anonymous rows store NO author id. The real author is kept in `anon_authors`,
--- readable by that author and by the site owner only. Anonymous DM initiators are hidden via
--- dm_participants.hidden.
--- Owner: one account (owner_email() below) is always an active admin that no one can demote or ban.
--- Only the owner can see who wrote anonymous content and read private conversations, for emergencies;
--- members are told so when they sign up and in the content rules. Other admins cannot.
+-- readable only by that author. Anonymous DM initiators are hidden via dm_participants.hidden.
 -- Admins decide per member who may SEND anonymously (profiles.can_send_anonymous) and who may
 -- RECEIVE anonymous messages (profiles.accept_anonymous). Members cannot change these.
 --
@@ -33,14 +29,6 @@ exception when duplicate_object then null; end $$;
 do $$ begin
   create type member_role as enum ('member', 'moderator', 'admin');
 exception when duplicate_object then null; end $$;
--- Inspector: may delete any room message, wall post, photo or video; nothing else.
--- (Compared as text everywhere below: a value added in this same transaction cannot be used as a literal.)
-alter type member_role add value if not exists 'inspector';
-
--- pgcrypto: reset_everything() checks the caller's own login password (already installed on Supabase).
-create schema if not exists extensions;
-create extension if not exists pgcrypto with schema extensions;
-
 
 -- ---------- Profiles ----------
 create table if not exists profiles (
@@ -332,34 +320,6 @@ language sql stable security definer set search_path = public as $$
                  where id = auth.uid() and status = 'active' and role = 'admin');
 $$;
 
--- The site owner's login email. Signing up with it always makes an active admin.
-create or replace function owner_email() returns text
-language sql immutable as $$ select 'shmuelshmuel@gmail.com'::text $$;
-
-create or replace function is_owner_id(p uuid) returns boolean
-language sql stable security definer set search_path = public, auth as $$
-  select exists (select 1 from auth.users where id = p and lower(email) = owner_email());
-$$;
-
-create or replace function is_owner() returns boolean
-language sql stable security definer set search_path = public as $$
-  select is_active() and is_owner_id(auth.uid());
-$$;
-
--- Which member is the owner (shown as "מנהל-על"); null until he signs up.
-create or replace function owner_profile_id() returns uuid
-language sql stable security definer set search_path = public, auth as $$
-  select u.id from auth.users u join profiles p on p.id = u.id
-   where lower(u.email) = owner_email() and is_active() limit 1;
-$$;
-
--- Admins, moderators and inspectors may delete any content in rooms and on walls.
-create or replace function can_remove_content() returns boolean
-language sql stable security definer set search_path = public as $$
-  select exists (select 1 from profiles
-                 where id = auth.uid() and status = 'active' and role::text in ('inspector', 'moderator', 'admin'));
-$$;
-
 create or replace function can_send_anon() returns boolean
 language sql stable security definer set search_path = public as $$
   select exists (select 1 from profiles where id = auth.uid() and status = 'active' and can_send_anonymous);
@@ -435,15 +395,11 @@ declare
   pre preapproved_emails;
   nm text;
   rid bigint;
-  own boolean := lower(new.email) = owner_email();
 begin
   select not exists (select 1 from profiles) into first_user;
-  first_user := first_user or own;
   select * into pre from preapproved_emails where email = lower(new.email);
   nm := left(coalesce(nullif(trim(new.raw_user_meta_data ->> 'display_name'), ''), pre.display_name, split_part(new.email, '@', 1)), 40);
-  if own then
-    nm := 'ss';
-  elsif not first_user and pre.email is null then
+  if not first_user and pre.email is null then
     rid := roster_match(nm);
   end if;
   insert into profiles (id, display_name, status, role, terms_accepted_at, joined_via, join_seen)
@@ -475,11 +431,6 @@ create trigger on_auth_user_created
 create or replace function guard_profile_update() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
-  -- The owner always stays an active admin.
-  if auth.uid() is not null and is_owner_id(old.id) then
-    new.role   := old.role;
-    new.status := old.status;
-  end if;
   if auth.uid() is not null and not is_admin() then
     new.role               := old.role;
     new.status             := old.status;
@@ -752,32 +703,6 @@ begin
   return next;
 end $$;
 
--- Wipes every message, room, conversation, list and account (the caller's too), leaving an empty main
--- room. Allowed to the owner, or to an admin while no owner account exists yet; the caller confirms with
--- his own login password (checked against Supabase Auth, nothing stored here). Stored files are removed
--- by the site before calling this (Storage can't be emptied from SQL).
-create or replace function reset_everything(p_password text) returns void
-language plpgsql security definer set search_path = public, extensions, auth as $$
-declare
-  pw text;
-  t text;
-begin
-  if not (is_owner() or (is_admin() and not exists (select 1 from auth.users where lower(email) = owner_email()))) then
-    raise exception 'אין הרשאה' using errcode = '42501';
-  end if;
-  select encrypted_password into pw from auth.users where id = auth.uid();
-  if pw is null or extensions.crypt(coalesce(p_password, ''), pw) <> pw then
-    raise exception 'הסיסמה שגויה' using errcode = '42501';
-  end if;
-  truncate dm_reactions, dm_messages, dm_participants, dm_conversations, reactions, message_likes, stars,
-    anon_authors, wall_posts, channel_reads, messages, channels, preapproved_emails, roster restart identity cascade;
-  foreach t in array array['thread_likes', 'thread_reads', 'threads'] loop
-    if to_regclass('public.' || t) is not null then execute format('truncate %I cascade', t); end if;
-  end loop;
-  delete from auth.users;
-  insert into channels (name, description, is_main) values ('הצ''אט הראשי', 'השיחה של כל הקהילה', true);
-end $$;
-
 -- Pin board of a room. Any member may pin; announcement rooms only by mods.
 create or replace function set_message_pinned(p_message bigint, p_pinned boolean) returns void
 language plpgsql security definer set search_path = public as $$
@@ -1019,10 +944,6 @@ $$;
 
 revoke execute on function add_preapproved(jsonb) from anon, public;
 grant execute on function add_preapproved(jsonb) to authenticated;
-revoke execute on function owner_profile_id() from anon, public;
-grant execute on function owner_profile_id() to authenticated;
-revoke execute on function reset_everything(text) from anon, public;
-grant execute on function reset_everything(text) to authenticated;
 revoke execute on function add_roster(text[]) from anon, public;
 grant execute on function add_roster(text[]) to authenticated;
 revoke execute on function roster_match(text) from anon, public, authenticated;
@@ -1076,7 +997,7 @@ create policy messages_select on messages for select using (is_active());
 drop policy if exists messages_insert on messages;
 drop policy if exists messages_update on messages;
 create policy messages_update on messages for update
-  using (is_active() and (author_id = auth.uid() or owns_anon('message', id) or can_remove_content()));
+  using (is_active() and (author_id = auth.uid() or owns_anon('message', id) or is_mod()));
 
 drop policy if exists channel_reads_own on channel_reads;
 create policy channel_reads_own on channel_reads for all
@@ -1120,30 +1041,30 @@ create policy stars_own on stars for all using (user_id = auth.uid()) with check
 -- DM reactions: visible to the conversation; written only through toggle_dm_reaction()
 drop policy if exists dm_reactions_select on dm_reactions;
 create policy dm_reactions_select on dm_reactions for select using (
-  is_active() and exists (select 1 from dm_messages m where m.id = message_id and (is_dm_participant(m.conversation_id) or is_owner()))
+  is_active() and exists (select 1 from dm_messages m where m.id = message_id and is_dm_participant(m.conversation_id))
 );
 
--- anonymous authorship: each author sees only their own rows, the owner sees all; written only by the functions above
+-- anonymous authorship: each author sees only their own rows; written only by the functions above
 drop policy if exists anon_authors_own on anon_authors;
-create policy anon_authors_own on anon_authors for select using (author_id = auth.uid() or is_owner());
+create policy anon_authors_own on anon_authors for select using (author_id = auth.uid());
 
 -- walls (created via post_wall only)
 drop policy if exists wall_select on wall_posts;
 create policy wall_select on wall_posts for select using (is_active());
 drop policy if exists wall_delete on wall_posts;
 create policy wall_delete on wall_posts for delete using (
-  is_active() and (profile_id = auth.uid() or author_id = auth.uid() or owns_anon('wall', id) or can_remove_content())
+  is_active() and (profile_id = auth.uid() or author_id = auth.uid() or owns_anon('wall', id) or is_mod())
 );
 
--- direct conversations (private to participants; admins and moderators cannot read them, only the owner)
+-- direct conversations (private to participants; moderators cannot read them)
 drop policy if exists dm_conv_select on dm_conversations;
-create policy dm_conv_select on dm_conversations for select using (is_active() and (is_dm_participant(id) or is_owner()));
+create policy dm_conv_select on dm_conversations for select using (is_active() and is_dm_participant(id));
 drop policy if exists dm_part_select on dm_participants;
 create policy dm_part_select on dm_participants for select using (
-  is_active() and (user_id = auth.uid() or (not hidden and is_dm_participant(conversation_id)) or is_owner())
+  is_active() and (user_id = auth.uid() or (not hidden and is_dm_participant(conversation_id)))
 );
 drop policy if exists dm_msg_select on dm_messages;
-create policy dm_msg_select on dm_messages for select using (is_active() and (is_dm_participant(conversation_id) or is_owner()));
+create policy dm_msg_select on dm_messages for select using (is_active() and is_dm_participant(conversation_id));
 drop policy if exists dm_msg_update on dm_messages;
 create policy dm_msg_update on dm_messages for update using (
   is_active() and (sender_id = auth.uid() or (sender_id is null and is_hidden_in_dm(conversation_id)))
@@ -1196,10 +1117,10 @@ begin
   execute 'drop policy if exists media_read on storage.objects';
   execute $p$create policy media_read on storage.objects for select to authenticated
              using (bucket_id = 'media' and public.is_active())$p$;
-  -- Admins, moderators and inspectors may physically delete any stored photo or video.
+  -- Admins and moderators may physically delete any stored photo or video.
   execute 'drop policy if exists media_delete on storage.objects';
   execute $p$create policy media_delete on storage.objects for delete to authenticated
-             using (bucket_id = 'media' and public.can_remove_content())$p$;
+             using (bucket_id = 'media' and public.is_mod())$p$;
   execute 'drop policy if exists media_upload on storage.objects';
   execute $p$create policy media_upload on storage.objects for insert to authenticated
              with check (bucket_id = 'media' and public.is_active()

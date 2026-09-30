@@ -1,6 +1,6 @@
 import { useMemo, type ReactNode } from 'react';
 import { useApp } from '../AppContext';
-import { clockTime, fullDate } from '../lib/format';
+import { clockTime, fullDate, roleTag } from '../lib/format';
 import Avatar from './Avatar';
 import Icon, { type IconName } from './Icon';
 import { useProfileCard } from './ProfileCard';
@@ -30,7 +30,7 @@ interface Props {
 }
 
 export default function MessageRow({ authorId, anonymous, mine, createdAt, editedAt, deleted, body, grouped, quote, footer, actions, highlight }: Props) {
-  const { profiles, online, nameOf, me } = useApp();
+  const { profiles, online, nameOf, me, ownerId } = useApp();
   const openCard = useProfileCard();
   const author = authorId ? profiles.get(authorId) : undefined;
   const isAnon = anonymous || !authorId;
@@ -58,7 +58,7 @@ export default function MessageRow({ authorId, anonymous, mine, createdAt, edite
             ) : (
               <button className="author" onClick={(e) => openCard(authorId!, e.currentTarget)}>{nameOf(authorId)}</button>
             )}
-            {author && author.role !== 'member' && <span className="role-tag">{author.role === 'admin' ? 'מנהל' : 'מנחה'}</span>}
+            {author && roleTag(author, ownerId) && <span className="role-tag">{roleTag(author, ownerId)}</span>}
             <time className="row-time" title={fullDate(createdAt)}>{clockTime(createdAt)}</time>
           </div>
         )}
