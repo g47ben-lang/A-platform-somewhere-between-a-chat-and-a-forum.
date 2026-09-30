@@ -57,6 +57,24 @@ export default function RoomPage() {
   // Calendar events announced by messages of this room (blessings room): message id -> label.
   const [msgEvents, setMsgEvents] = useState<Map<number, string>>(new Map());
   const countdown = useMemo(() => nextCountdown(), []);
+  // The main room's blue banner (with the countdown and "this week" highlights) can be folded to one slim line.
+  const [heroCollapsed, setHeroCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('hero-collapsed') === '1';
+    } catch {
+      return false;
+    }
+  });
+  function toggleHero() {
+    setHeroCollapsed((v) => {
+      try {
+        localStorage.setItem('hero-collapsed', v ? '0' : '1');
+      } catch {
+        /* storage unavailable */
+      }
+      return !v;
+    });
+  }
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [editing, setEditing] = useState<Message | null>(null);
   const [forward, setForward] = useState<Message | null>(null);
@@ -480,7 +498,8 @@ export default function RoomPage() {
     <div className={`split ${panel ? 'has-panel' : ''}`}>
       <section className="pane chat-pane">
         {room.is_main ? (
-          <header className="room-hero" style={{ '--hero-img': `url("${HERO_URL}")` } as CSSProperties}>
+          <header className={`room-hero ${heroCollapsed ? 'collapsed' : ''}`} style={{ '--hero-img': `url("${HERO_URL}")` } as CSSProperties}>
+            <div className="room-hero-top">
             <div className="room-hero-text">
               <span className="hero-org">{SITE_NAME}</span>
               <h1>{room.name}</h1>
@@ -493,6 +512,11 @@ export default function RoomPage() {
               )}
             </div>
             {headerTools}
+            <button className="icon-btn hero-toggle" onClick={toggleHero} aria-label={heroCollapsed ? 'הרחבת הכותרת' : 'הקטנת הכותרת'} title={heroCollapsed ? 'הרחבה' : 'הקטנה והסתרת המבזקים'}>
+              <Icon name={heroCollapsed ? 'keyboard_arrow_down' : 'keyboard_arrow_up'} />
+            </button>
+            </div>
+            {!heroCollapsed && <Highlights />}
           </header>
         ) : (
           <header className="pane-head">
@@ -507,8 +531,6 @@ export default function RoomPage() {
             {headerTools}
           </header>
         )}
-
-        {room.is_main && <Highlights />}
 
         <ChatStream
           key={`${room.id}-${linkedId ?? ''}`}

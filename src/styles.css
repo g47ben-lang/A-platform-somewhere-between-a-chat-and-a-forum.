@@ -1164,3 +1164,27 @@ button.author:hover, .title-link:hover { text-decoration: underline; }
 .quiz-board ol { margin: 6px 0 0; padding-inline-start: 20px; display: grid; gap: 2px; }
 .quiz-board li span:first-child { margin-inline-end: 8px; }
 @media (max-width: 520px) { .quiz-options { grid-template-columns: 1fr; } }
+
+/* Main banner: highlights inside it; foldable to one slim line */
+.room-hero { flex-direction: column; align-items: stretch; gap: 10px; }
+.room-hero-top { display: flex; align-items: flex-end; gap: 12px; }
+.room-hero.collapsed { min-height: 0; padding: 8px 16px; }
+.room-hero.collapsed .room-hero-top { align-items: center; }
+.room-hero.collapsed .hero-org, .room-hero.collapsed .room-hero-text p, .room-hero.collapsed .countdown { display: none; }
+.room-hero.collapsed h1 { font-size: 18px; }
+.hero-toggle { flex-shrink: 0; }
+.room-hero .highlights { background: transparent; border: 0; padding: 0; }
+.room-hero .hl-label { color: #fff; }
+.room-hero .hl-item { background: rgba(255, 255, 255, 0.14); color: #fff; backdrop-filter: blur(4px); }
+.room-hero .hl-item:hover { background: rgba(255, 255, 255, 0.22); }
+.room-hero .hl-item strong { color: rgba(255, 255, 255, 0.8); }
+.room-hero .hl-item .muted { color: rgba(255, 255, 255, 0.75); }
+.room-hero .hl-quote > .icon { color: #fff; }
+@media (max-width: 600px) {
+  .room-hero-top { flex-wrap: wrap; }
+  .room-hero:not(.collapsed) .room-hero-text { flex-basis: 100%; }
+  .room-hero:not(.collapsed) .room-tools { margin-inline-start: auto; }
+  .room-hero .chip-label { display: none; }
+  .hl-text { max-width: 60vw; }
+}
+.room-hero.collapsed h1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

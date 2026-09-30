@@ -17,26 +17,16 @@ interface Highlight {
   score: number;
 }
 
-const HIDE_KEY = 'highlights-hidden';
-
 /** "מבזק השבוע": the week's top image/meme and top quote, chosen by likes and reactions. */
 export default function Highlights() {
   const { rooms, nameOf } = useApp();
   const [items, setItems] = useState<Highlight[]>([]);
-  const [hidden, setHidden] = useState(() => {
-    try {
-      return localStorage.getItem(HIDE_KEY) ?? '';
-    } catch {
-      return '';
-    }
-  });
 
   useEffect(() => {
     supabase.rpc('weekly_highlights').then(({ data }) => setItems((data as Highlight[]) ?? []));
   }, []);
 
-  const key = items.map((i) => i.message_id).join(',');
-  if (!items.length || hidden === key) return null;
+  if (!items.length) return null;
 
   const link = (h: Highlight) => {
     const r = rooms.find((x) => x.id === h.channel_id);
@@ -45,15 +35,6 @@ export default function Highlights() {
   const who = (h: Highlight) => (h.anonymous ? 'אנונימי' : nameOf(h.author_id));
   const image = items.find((i) => i.kind === 'image');
   const quote = items.find((i) => i.kind === 'quote');
-
-  function hide() {
-    setHidden(key);
-    try {
-      localStorage.setItem(HIDE_KEY, key);
-    } catch {
-      /* storage unavailable */
-    }
-  }
 
   return (
     <aside className="highlights" aria-label="מבזק השבוע">
@@ -76,7 +57,6 @@ export default function Highlights() {
           </span>
         </Link>
       )}
-      <button className="icon-btn small hl-close" onClick={hide} aria-label="הסתרת המבזק"><Icon name="close" size={16} /></button>
     </aside>
   );
 }
