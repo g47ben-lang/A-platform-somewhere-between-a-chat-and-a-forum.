@@ -99,16 +99,16 @@ function SchemaOutdated({ detail, isAdmin }: { detail: string; isAdmin: boolean 
     <div className="auth-screen">
       <div className="auth-card">
         <span className="status-icon"><Icon name="settings" size={32} /></span>
-        <h1 className="auth-title">המערכת בעדכון</h1>
+        <h1 className="auth-title">הצ'אט בעדכון כרגע</h1>
         {isAdmin ? (
           <p className="auth-sub">
             האתר עודכן, אבל מסד הנתונים עדיין בגרסה הקודמת. יש להדביק את כל הקובץ <code>supabase/schema.sql</code> העדכני
             ב-Supabase ← SQL Editor ← Run. אם מופיעה שגיאה אדומה, צלמו אותה. הדף ייפתח לבד תוך כמה שניות מסיום העדכון.
           </p>
         ) : (
-          <p className="auth-sub">האתר מתעדכן כרגע. הדף ייפתח לבד כשהעדכון יסתיים.</p>
+          <p className="auth-sub">כנס שוב מאוחר יותר. הדף גם ייפתח לבד כשהעדכון יסתיים.</p>
         )}
-        <pre className="error-detail" dir="ltr">{detail}{'\n'}user: {me?.display_name} ({me?.role})</pre>
+        {isAdmin && <pre className="error-detail" dir="ltr">{detail}{'\n'}user: {me?.display_name} ({me?.role})</pre>}
         <div className="auth-actions">
           <span />
           <button className="btn filled" onClick={() => window.location.reload()}>רענון</button>
