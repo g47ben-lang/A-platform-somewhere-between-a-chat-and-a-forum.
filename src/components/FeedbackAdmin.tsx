@@ -5,13 +5,13 @@ import { errorText, fullDate, timeAgo } from '../lib/format';
 import { KIND_LABEL, type FeedbackRow } from '../pages/ContactPage';
 import { useFeedback } from './Feedback';
 import Icon from './Icon';
+import FeedbackThread from './FeedbackThread';
 
 /** Admin: every request sent through "יצירת קשר עם הניהול", open ones first. */
 export default function FeedbackAdmin() {
   const { nameOf } = useApp();
   const { toast } = useFeedback();
   const [rows, setRows] = useState<FeedbackRow[] | null>(null);
-  const [drafts, setDrafts] = useState<Record<number, string>>({});
   const [showDone, setShowDone] = useState(false);
 
   const load = () =>
@@ -27,9 +27,8 @@ export default function FeedbackAdmin() {
   }, []);
 
   async function answer(f: FeedbackRow, done: boolean) {
-    const { error } = await supabase.rpc('reply_feedback', { p_id: f.id, p_reply: drafts[f.id] ?? '', p_done: done });
+    const { error } = await supabase.rpc('reply_feedback', { p_id: f.id, p_reply: '', p_done: done });
     if (error) return toast(errorText(error), 'error');
-    setDrafts((d) => ({ ...d, [f.id]: '' }));
     load();
   }
 
@@ -56,21 +55,10 @@ export default function FeedbackAdmin() {
                 <strong>{nameOf(f.author_id)}</strong>
                 <time className="muted small" title={fullDate(f.created_at)}>{timeAgo(f.created_at)}</time>
               </div>
-              <p className="feedback-body">{f.body}</p>
-              {f.reply && <div className="feedback-reply"><strong>נענה:</strong> {f.reply}</div>}
-              <textarea
-                rows={2}
-                className="feedback-answer"
-                placeholder="תשובה לשולח (לא חובה)"
-                value={drafts[f.id] ?? ''}
-                onChange={(e) => setDrafts((d) => ({ ...d, [f.id]: e.target.value }))}
-              />
+              <FeedbackThread f={f} adminView onChange={load} />
               <div className="row gap">
                 {f.status === 'open' ? (
-                  <>
-                    {(drafts[f.id] ?? '').trim() && <button className="btn text" onClick={() => answer(f, false)}>שליחת תשובה</button>}
-                    <button className="btn filled small" onClick={() => answer(f, true)}>{(drafts[f.id] ?? '').trim() ? 'תשובה וסימון כטופל' : 'סימון כטופל'}</button>
-                  </>
+                  <button className="btn tonal small" onClick={() => answer(f, true)}>סימון כטופל</button>
                 ) : (
                   <button className="btn text" onClick={() => answer(f, false)}>פתיחה מחדש</button>
                 )}

@@ -4,6 +4,7 @@ import { supabase } from '../supabase';
 import { errorText, fullDate, timeAgo } from '../lib/format';
 import { useFeedback } from '../components/Feedback';
 import Icon from '../components/Icon';
+import FeedbackThread from '../components/FeedbackThread';
 
 export type FeedbackKind = 'bug' | 'idea' | 'other';
 export const KIND_LABEL: Record<FeedbackKind, string> = { bug: 'באג / תקלה', idea: 'הצעה לשיפור', other: 'אחר' };
@@ -91,12 +92,7 @@ export default function ContactPage() {
                     <span className={`feedback-status ${f.status}`}>{f.status === 'done' ? 'טופל' : 'פתוח'}</span>
                     <time className="muted small" title={fullDate(f.created_at)}>{timeAgo(f.created_at)}</time>
                   </div>
-                  <p className="feedback-body">{f.body}</p>
-                  {f.reply && (
-                    <div className="feedback-reply">
-                      <strong>תשובת הניהול:</strong> {f.reply}
-                    </div>
-                  )}
+                  <FeedbackThread f={f} adminView={false} onChange={load} />
                 </li>
               ))}
             </ul>

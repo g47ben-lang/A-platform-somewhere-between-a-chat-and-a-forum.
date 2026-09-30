@@ -1,3 +1,4 @@
+import { pushEnabledHere } from './push';
 // Desktop notifications for new private messages and mentions while the tab is in the background.
 const KEY = 'notify-enabled';
 
@@ -29,6 +30,8 @@ export async function setNotificationsEnabled(on: boolean): Promise<boolean> {
 
 export function notify(title: string, body: string, onClick?: () => void) {
   if (!notificationsEnabled() || !document.hidden) return;
+  // With push on, the service worker already shows it (even when the site is closed).
+  if (pushEnabledHere()) return;
   try {
     const n = new Notification(title, { body: body.slice(0, 140), dir: 'rtl', lang: 'he', tag: title });
     n.onclick = () => {

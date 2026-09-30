@@ -404,6 +404,16 @@ create table if not exists feedback (
   created_at  timestamptz not null default now()
 );
 create index if not exists feedback_author_idx on feedback (author_id, id desc);
+-- A request is a small conversation between the member and the management.
+create table if not exists feedback_messages (
+  id           bigint generated always as identity primary key,
+  feedback_id  bigint not null references feedback on delete cascade,
+  author_id    uuid references profiles on delete set null,
+  from_admin   boolean not null default false,
+  body         text not null check (char_length(body) between 1 and 2000),
+  created_at   timestamptz not null default now()
+);
+create index if not exists feedback_messages_idx on feedback_messages (feedback_id, id);
 
 create table if not exists channel_reads (
   user_id       uuid   not null references profiles on delete cascade,
@@ -1151,6 +1161,39 @@ begin
 end $$;
 
 -- Admin: answer a request and/or mark it handled.
+-- Continue a request's conversation: its author or any admin. A member's reply reopens it.
+create or replace function feedback_post(p_feedback bigint, p_body text) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  f feedback;
+  admin_side boolean;
+  r record;
+begin
+  select * into f from feedback where id = p_feedback;
+  if not found or not is_active() or not (f.author_id = auth.uid() or is_admin()) then
+    raise exception 'אין הרשאה' using errcode = '42501';
+  end if;
+  if char_length(trim(coalesce(p_body, ''))) = 0 then raise exception 'ההודעה ריקה'; end if;
+  admin_side := f.author_id <> auth.uid();
+  insert into feedback_messages (feedback_id, author_id, from_admin, body)
+  values (p_feedback, auth.uid(), admin_side, left(trim(p_body), 2000));
+  if admin_side then
+    perform queue_email(f.author_id, 'on_feedback', 'feedback', 'fbm:' || currval(pg_get_serial_sequence('feedback_messages', 'id')),
+                        'הניהול כתב לך בפנייה', p_body, '#/contact');
+    perform queue_push(f.author_id, 'on_dm', 'fbm:' || currval(pg_get_serial_sequence('feedback_messages', 'id')),
+                       'הניהול כתב לך בפנייה', p_body, '#/contact');
+  else
+    update feedback set status = 'open' where id = p_feedback;
+    for r in select id from profiles where role = 'admin' and status = 'active' and id <> auth.uid() loop
+      perform queue_email(r.id, 'on_feedback', 'feedback', 'fbm:' || currval(pg_get_serial_sequence('feedback_messages', 'id')),
+                          'תגובה חדשה בפנייה', p_body, '#/admin?tab=feedback');
+      perform queue_push(r.id, 'on_dm', 'fbm:' || currval(pg_get_serial_sequence('feedback_messages', 'id')),
+                         'תגובה חדשה בפנייה', p_body, '#/admin?tab=feedback');
+    end loop;
+  end if;
+  perform push_kick();
+end $$;
+
 -- Admins: how many requests are waiting (sidebar badge).
 create or replace function open_feedback_count() returns int
 language sql stable security definer set search_path = public as $$
@@ -2081,7 +2124,7 @@ begin
   if pw is null or extensions.crypt(coalesce(p_password, ''), pw) <> pw then
     raise exception 'הסיסמה שגויה' using errcode = '42501';
   end if;
-  truncate message_reports, mute_log, scheduled_messages, room_mutes, push_queue, push_subscriptions, push_prefs,
+  truncate feedback_messages, message_reports, mute_log, scheduled_messages, room_mutes, push_queue, push_subscriptions, push_prefs,
     quiz_guesses, quote_quizzes, confession_comments, confession_reactions, confessions, events, email_queue, email_prefs, nickname_votes, nicknames, birthday_posts, birthdays, feedback, poll_votes, poll_options, polls, dm_reactions, dm_messages, dm_participants, dm_conversations, reactions, message_likes, stars,
     anon_authors, wall_posts, channel_reads, messages, channels, preapproved_emails, roster restart identity cascade;
   foreach t in array array['thread_likes', 'thread_reads', 'threads'] loop
@@ -2338,8 +2381,8 @@ revoke execute on function create_poll(text, text[], boolean, bigint), vote_poll
   set_poll_closed(bigint, boolean) from anon, public;
 grant execute on function create_poll(text, text[], boolean, bigint), vote_poll(bigint, bigint[]), poll_results(bigint),
   set_poll_closed(bigint, boolean) to authenticated;
-revoke execute on function send_feedback(text, text), reply_feedback(bigint, text, boolean), open_feedback_count() from anon, public;
-grant execute on function send_feedback(text, text), reply_feedback(bigint, text, boolean), open_feedback_count() to authenticated;
+revoke execute on function send_feedback(text, text), reply_feedback(bigint, text, boolean), open_feedback_count(), feedback_post(bigint, text) from anon, public;
+grant execute on function send_feedback(text, text), reply_feedback(bigint, text, boolean), open_feedback_count(), feedback_post(bigint, text) to authenticated;
 revoke execute on function post_birthdays(), profile_birthday(uuid), propose_nickname(uuid, text),
   toggle_nickname_vote(bigint), remove_nickname(bigint), nickname_list(uuid) from anon, public;
 grant execute on function post_birthdays(), profile_birthday(uuid), propose_nickname(uuid, text),
@@ -2400,6 +2443,7 @@ alter table preapproved_emails enable row level security;
 alter table roster           enable row level security;
 alter table polls            enable row level security;
 alter table feedback         enable row level security;
+alter table feedback_messages enable row level security;
 alter table birthdays        enable row level security;
 alter table birthday_posts   enable row level security;  -- no policies: functions only
 alter table nicknames        enable row level security;  -- no policies: functions only
@@ -2508,6 +2552,10 @@ create policy poll_votes_own on poll_votes for select using (user_id = auth.uid(
 -- contact requests: the sender reads his own, admins read and delete all; written only through the functions
 drop policy if exists feedback_select on feedback;
 create policy feedback_select on feedback for select using (is_active() and (author_id = auth.uid() or is_admin()));
+drop policy if exists feedback_messages_select on feedback_messages;
+create policy feedback_messages_select on feedback_messages for select using (
+  is_active() and exists (select 1 from feedback f where f.id = feedback_id and (f.author_id = auth.uid() or is_admin()))
+);
 drop policy if exists feedback_delete on feedback;
 create policy feedback_delete on feedback for delete using (is_admin());
 

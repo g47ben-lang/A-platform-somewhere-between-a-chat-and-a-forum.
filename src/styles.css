@@ -1199,3 +1199,19 @@ button.author:hover, .title-link:hover { text-decoration: underline; }
 
 .topbar-end { display: flex; align-items: center; gap: 6px; }
 .resend-row { display: flex; justify-content: flex-start; margin-top: -8px; }
+.install-row { display: flex; align-items: center; gap: 12px; }
+.install-row .grow { display: flex; flex-direction: column; gap: 2px; }
+.install-row > .icon { color: var(--primary); }
+
+/* Request conversation (contact the management) */
+.fb-thread { display: flex; flex-direction: column; gap: 6px; }
+.fb-msg { max-width: 85%; padding: 8px 12px; border-radius: 14px; font-size: 14px; }
+.fb-msg.theirs { align-self: flex-start; background: var(--surface); border: 1px solid var(--divider); }
+.fb-msg.mine { align-self: flex-end; background: var(--primary-container, #d3e3fd); }
+.fb-msg-head { display: flex; gap: 8px; align-items: baseline; font-size: 12px; margin-bottom: 2px; }
+.fb-msg-head time { color: var(--muted); }
+.fb-msg-body { white-space: pre-wrap; word-break: break-word; }
+.fb-reply { display: flex; gap: 6px; align-items: flex-end; margin-top: 4px; }
+.fb-reply textarea { flex: 1; min-width: 0; resize: vertical; font: inherit; padding: 8px 12px; border-radius: 18px; border: 1px solid var(--outline); background: var(--surface); color: var(--text); }
+.tabs { overflow-x: auto; scrollbar-width: thin; }
+.tabs button { white-space: nowrap; flex-shrink: 0; }

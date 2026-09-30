@@ -9,6 +9,7 @@ import { useFeedback } from '../components/Feedback';
 import Icon from '../components/Icon';
 import PasswordFields, { passwordProblem } from '../components/PasswordFields';
 import EmailSettings from '../components/EmailSettings';
+import PushSettings from '../components/PushSettings';
 import BirthdaySettings from '../components/BirthdaySettings';
 
 export default function SettingsPage() {
@@ -131,6 +132,8 @@ export default function SettingsPage() {
             <p className="muted">הדפדפן הזה לא תומך בהתראות.</p>
           )}
         </section>
+
+        <PushSettings />
 
         <EmailSettings />
 
