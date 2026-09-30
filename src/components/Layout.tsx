@@ -8,6 +8,7 @@ import Icon from './Icon';
 import NewChatDialog from './NewChatDialog';
 import RoomDialog from './RoomDialog';
 import { useMoreNews } from '../lib/useMoreNews';
+import { MutedNotice } from './Moderation';
 
 export function useConversationTitle() {
   const { nameOf } = useApp();
@@ -15,7 +16,7 @@ export function useConversationTitle() {
 }
 
 export default function Layout() {
-  const { me, rooms, mainRoom, conversations, online, isAdmin, profiles } = useApp();
+  const { me, rooms, mainRoom, conversations, online, isAdmin, profiles, canRemove, mutedRooms } = useApp();
   const news = useMoreNews(me?.id, me?.status === 'active');
   const [noticeClosed, setNoticeClosed] = useState(false);
   const [drawer, setDrawer] = useState(false);
@@ -40,8 +41,19 @@ export default function Layout() {
 
   const pendingCount = isAdmin ? [...profiles.values()].filter((p) => p.status === 'pending').length : 0;
   const newJoins = isAdmin ? [...profiles.values()].filter((p) => p.joined_via === 'roster' && !p.join_seen && p.status === 'active').length : 0;
-  const topicRooms = rooms.filter((r) => !r.is_main);
-  const unreadTotal = conversations.reduce((n, c) => n + c.unread, 0) + rooms.reduce((n, r) => n + r.unread, 0);
+  // Rooms I muted go to the bottom, without an unread count.
+  const topicRooms = rooms.filter((r) => !r.is_main).sort((a, b) => Number(mutedRooms.has(a.id)) - Number(mutedRooms.has(b.id)));
+  const unreadOf = (r: { id: number; unread: number }) => (mutedRooms.has(r.id) ? 0 : r.unread);
+  // Moderators: open reports.
+  const [openReports, setOpenReports] = useState(0);
+  useEffect(() => {
+    if (!canRemove) return;
+    const load = () => supabase.rpc('report_list').then(({ data }) => setOpenReports(((data as unknown[]) ?? []).length));
+    load();
+    const t = setInterval(load, 60000);
+    return () => clearInterval(t);
+  }, [canRemove]);
+  const unreadTotal = conversations.reduce((n, c) => n + c.unread, 0) + rooms.reduce((n, r) => n + unreadOf(r), 0);
 
   useEffect(() => {
     setDrawer(false);
@@ -129,6 +141,8 @@ export default function Layout() {
         </div>
       )}
 
+      <MutedNotice />
+
       <aside className="sidebar">
         <button className="new-chat" onClick={() => setNewChat(true)}>
           <Icon name="edit" />
@@ -164,6 +178,13 @@ export default function Layout() {
               <span className="badge-count">{pendingCount}</span>
             </NavLink>
           )}
+          {canRemove && (
+            <NavLink to="/moderation" className="nav-item">
+              <Icon name="flag" />
+              <span className="nav-label">פיקוח</span>
+              {openReports > 0 && <span className="badge-count">{openReports}</span>}
+            </NavLink>
+          )}
           {isAdmin && openFeedback > 0 && (
             <NavLink to="/admin?tab=feedback" className="nav-item">
               <Icon name="mail" />
@@ -191,10 +212,11 @@ export default function Layout() {
             <button className="nav-empty link-like" onClick={() => setNewRoom(true)}>פתיחת חדר לנושא מסוים</button>
           )}
           {topicRooms.map((r) => (
-            <NavLink key={r.id} to={`/room/${r.id}`} className={`nav-item ${r.unread > 0 ? 'unread' : ''}`}>
+            <NavLink key={r.id} to={`/room/${r.id}`} className={`nav-item ${unreadOf(r) > 0 ? 'unread' : ''} ${mutedRooms.has(r.id) ? 'room-muted' : ''}`}>
               <SpaceTile name={r.name} size={24} announce={r.admin_only_post} />
               <span className="nav-label">{r.name}</span>
-              {r.unread > 0 && <span className="badge-count">{badge(r.unread)}</span>}
+              {mutedRooms.has(r.id) && <Icon name="notifications_off" size={16} className="muted-icon" />}
+              {unreadOf(r) > 0 && <span className="badge-count">{badge(unreadOf(r))}</span>}
             </NavLink>
           ))}
         </div>

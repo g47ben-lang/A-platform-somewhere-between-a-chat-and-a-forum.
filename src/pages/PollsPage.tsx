@@ -204,19 +204,30 @@ function PollView({ id }: { id: number }) {
             </form>
           ) : (
             <div className="poll-options">
-              {options.map((o) => {
-                const n = results.find((r) => r.option_id === o.id)?.votes ?? 0;
-                const pct = voters ? Math.round((n / voters) * 100) : 0;
-                return (
-                  <div key={o.id} className={`poll-result ${mine.has(o.id) ? 'mine' : ''}`}>
-                    <div className="poll-bar" style={{ width: `${pct}%` }} />
-                    <span className="poll-label">
-                      {mine.has(o.id) && <Icon name="check" size={16} />} {o.label}
-                    </span>
-                    <span className="poll-count">{n} · {pct}%</span>
-                  </div>
-                );
-              })}
+              <div className="poll-results-wrap">
+                <PollDonut
+                  slices={options.map((o, i) => ({ value: results.find((r) => r.option_id === o.id)?.votes ?? 0, color: SLICE_COLORS[i % SLICE_COLORS.length] }))}
+                  center={String(voters)}
+                  sub="ענו"
+                />
+                <div className="poll-results-list">
+                  {options.map((o, i) => {
+                    const n = results.find((r) => r.option_id === o.id)?.votes ?? 0;
+                    const pct = voters ? Math.round((n / voters) * 100) : 0;
+                    return (
+                      <div key={o.id} className={`poll-result ${mine.has(o.id) ? 'mine' : ''}`}>
+                        <div className="poll-bar" style={{ width: `${pct}%`, background: `${SLICE_COLORS[i % SLICE_COLORS.length]}33` }} />
+                        <span className="poll-label">
+                          <span className="slice-dot" style={{ background: SLICE_COLORS[i % SLICE_COLORS.length] }} />
+                          {o.label}
+                          {mine.has(o.id) && <Icon name="check" size={16} />}
+                        </span>
+                        <span className="poll-count">{n} · {pct}%</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
               <div className="poll-foot">
                 <span className="muted small">{voters} ענו</span>
                 {!poll.closed && <button className="btn text" onClick={() => setChanging(true)}>שינוי התשובה</button>}
@@ -310,5 +321,33 @@ export function CreatePollDialog({ onClose, roomId }: { onClose: () => void; roo
         </div>
       </form>
     </Modal>
+  );
+}
+
+// Distinct, calm colors that read well in light and dark mode.
+const SLICE_COLORS = ['#0b57d0', '#1e8e3e', '#e37400', '#a142f4', '#d93025', '#12b5cb', '#f9ab00', '#e52592', '#5f6368', '#7cb342'];
+
+/** Donut chart of a poll's answers (SVG, no library). */
+function PollDonut({ slices, center, sub }: { slices: { value: number; color: string }[]; center: string; sub: string }) {
+  const total = slices.reduce((n, x) => n + x.value, 0);
+  const r = 42;
+  const c = 2 * Math.PI * r;
+  let offset = 0;
+  return (
+    <svg className="poll-donut" viewBox="0 0 100 100" role="img" aria-label="תוצאות הסקר">
+      <circle cx="50" cy="50" r={r} fill="none" stroke="var(--surface-2)" strokeWidth="14" />
+      {total > 0 &&
+        slices.map((x, i) => {
+          const len = (x.value / total) * c;
+          const el = x.value ? (
+            <circle key={i} cx="50" cy="50" r={r} fill="none" stroke={x.color} strokeWidth="14"
+              strokeDasharray={`${len} ${c - len}`} strokeDashoffset={-offset} transform="rotate(-90 50 50)" />
+          ) : null;
+          offset += len;
+          return el;
+        })}
+      <text x="50" y="49" textAnchor="middle" className="donut-num">{center}</text>
+      <text x="50" y="63" textAnchor="middle" className="donut-sub">{sub}</text>
+    </svg>
   );
 }

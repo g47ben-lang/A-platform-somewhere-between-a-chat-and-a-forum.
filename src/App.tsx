@@ -17,6 +17,7 @@ import PollsPage from './pages/PollsPage';
 import ContactPage from './pages/ContactPage';
 import EventsPage from './pages/EventsPage';
 import FunPage from './pages/FunPage';
+import ModerationPage from './pages/ModerationPage';
 import TermsGate from './pages/TermsGate';
 
 export default function App() {
@@ -77,6 +78,7 @@ export default function App() {
         <Route path="contact" element={<ContactPage />} />
         <Route path="events" element={<EventsPage />} />
         <Route path="more" element={<FunPage />} />
+        <Route path="moderation" element={<ModerationPage />} />
         <Route path="fun" element={<Navigate to="/more" replace />} />
         <Route path="search" element={<SearchPage />} />
         <Route path="admin" element={isAdmin ? <AdminPage /> : <Navigate to="/" />} />

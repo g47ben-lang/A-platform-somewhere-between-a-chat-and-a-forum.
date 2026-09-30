@@ -62,9 +62,25 @@ export default function FeedbackThread({ f, adminView, onChange }: { f: Feedback
         </div>
       ))}
       <form className="fb-reply" onSubmit={send}>
-        <textarea rows={1} maxLength={2000} value={text} onChange={(e) => setText(e.target.value)}
-          placeholder={adminView ? 'תשובה לפונה…' : 'להוסיף לפנייה…'} />
-        <button className="icon-btn" disabled={busy || !text.trim()} aria-label="שליחה"><Icon name="send" /></button>
+        <textarea
+          rows={1}
+          maxLength={2000}
+          value={text}
+          placeholder={adminView ? 'תשובה לפונה…' : 'להוסיף לפנייה…'}
+          onChange={(e) => {
+            setText(e.target.value);
+            // grow with the text, up to about 6 lines
+            e.target.style.height = 'auto';
+            e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey && text.trim()) {
+              e.preventDefault();
+              e.currentTarget.form?.requestSubmit();
+            }
+          }}
+        />
+        <button className="fb-send" disabled={busy || !text.trim()} aria-label="שליחה"><Icon name="send" size={20} className="icon-flip" /></button>
       </form>
     </div>
   );

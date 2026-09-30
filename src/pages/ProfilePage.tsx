@@ -13,10 +13,13 @@ import Icon from '../components/Icon';
 import MessageRow from '../components/MessageRow';
 import { startConversation } from '../components/NewChatDialog';
 import Nicknames, { useNicknames } from '../components/Nicknames';
+import { MuteDialog, muteUntilLabel } from '../components/Moderation';
 
 export default function ProfilePage() {
   const userId = useParams().userId!;
   const { me, profiles, online, canRemove, ownerId, reloadConversations, reloadProfiles, reloadMe } = useApp();
+  const [muteOpen, setMuteOpen] = useState(false);
+  const [titles, setTitles] = useState<{ first_count: number; last_count: number; first_now: boolean; last_now: boolean } | null>(null);
   const { confirm, toast } = useFeedback();
   const navigate = useNavigate();
   const profile = profiles.get(userId);
@@ -25,6 +28,10 @@ export default function ProfilePage() {
   const nicks = useNicknames(userId);
   const topNick = nicks.list?.[0];
   const [hebBirthday, setHebBirthday] = useState<string | null>(null);
+  useEffect(() => {
+    setTitles(null);
+    supabase.rpc('day_titles', { p_user: userId }).then(({ data }) => setTitles(((data as (typeof titles)[]) ?? [])[0] ?? null));
+  }, [userId]);
   useEffect(() => {
     setHebBirthday(null);
     supabase.rpc('profile_birthday', { p_user: userId }).then(({ data }) => setHebBirthday((data as string | null) ?? null));
@@ -148,7 +155,22 @@ export default function ProfilePage() {
                   <span className="profile-bday"><Icon name="cake" size={14} /> {hebBirthday}</span>
                 </>
               )}
+              {profile.muted_until && new Date(profile.muted_until) > new Date() && <span className="role-tag danger-tag">מורחק</span>}
             </div>
+            {titles && (titles.first_count > 0 || titles.last_count > 0) && (
+              <div className="day-titles">
+                {titles.first_count > 0 && (
+                  <span className={`day-title ${titles.first_now ? 'now' : ''}`} title="הראשון שכתב בצ'אט מ-6:40 בבוקר">
+                    <Icon name="schedule" size={14} /> הראשון בבוקר{titles.first_now ? ' היום' : ''} · {titles.first_count}
+                  </span>
+                )}
+                {titles.last_count > 0 && (
+                  <span className={`day-title ${titles.last_now ? 'now' : ''}`} title="האחרון שכתב בצ'אט לפני 6:40 בבוקר">
+                    <Icon name="schedule" size={14} /> האחרון בלילה{titles.last_now ? ' אמש' : ''} · {titles.last_count}
+                  </span>
+                )}
+              </div>
+            )}
             {profile.bio && <p className="profile-bio">{profile.bio}</p>}
             <div className="profile-actions">
               {isMe ? (
@@ -158,6 +180,15 @@ export default function ProfilePage() {
                   <button className="btn filled" onClick={() => message(false)}><Icon name="chat" size={18} /> שליחת הודעה</button>
                   {profile.accept_anonymous && me?.can_send_anonymous && (
                     <button className="btn tonal" onClick={() => message(true)}><Icon name="visibility_off" size={18} /> הודעה אנונימית</button>
+                  )}
+                  {canRemove && profile.role !== 'admin' && profile.id !== ownerId && (
+                    profile.muted_until && new Date(profile.muted_until) > new Date() ? (
+                      <button className="btn text" onClick={async () => { await supabase.rpc('unmute_member', { p_user: profile.id }); reloadProfiles(); }} title={muteUntilLabel(profile.muted_until)}>
+                        ביטול השתקה
+                      </button>
+                    ) : (
+                      <button className="btn text danger" onClick={() => setMuteOpen(true)}><Icon name="block" size={18} /> השתקה</button>
+                    )
                   )}
                 </>
               )}
@@ -232,6 +263,7 @@ export default function ProfilePage() {
           )}
         </section>
       </div>
+      {muteOpen && <MuteDialog userId={profile.id} onClose={() => setMuteOpen(false)} />}
     </div>
   );
 }

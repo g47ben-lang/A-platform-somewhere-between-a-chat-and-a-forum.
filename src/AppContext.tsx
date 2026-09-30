@@ -23,6 +23,11 @@ interface AppState {
   /** The owner ("מנהל-על"): the only one who sees anonymous authors and all private chats. */
   isOwner: boolean;
   ownerId: string | null;
+  /** Set while I am muted: until when and why (never who). */
+  myMute: { until: string; reason: string | null } | null;
+  /** Rooms I muted for myself (moved down in the sidebar, no unread count). */
+  mutedRooms: Set<number>;
+  toggleRoomMute: (roomId: number) => Promise<void>;
   recovering: boolean;
   endRecovery: () => void;
   nameOf: (id: string | null | undefined) => string;
@@ -51,6 +56,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [online, setOnline] = useState<Set<string>>(new Set());
   const [recovering, setRecovering] = useState(false);
   const [ownerId, setOwnerId] = useState<string | null>(null);
+  const [myMute, setMyMute] = useState<{ until: string; reason: string | null } | null>(null);
+  const [mutedRooms, setMutedRooms] = useState<Set<number>>(new Set());
   const meRef = useRef<Profile | null>(null);
   const convRef = useRef(conversations);
   convRef.current = conversations;
@@ -164,6 +171,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, [active, reloadProfiles, reloadRooms, reloadConversations, reloadMe]);
 
+  // Am I muted? (re-checked whenever my profile changes, e.g. a moderator muted or unmuted me)
+  useEffect(() => {
+    if (!active) return;
+    supabase.rpc('my_mute').then(({ data }) => {
+      const r = (Array.isArray(data) ? data[0] : data) as { until: string | null; reason: string | null } | null;
+      setMyMute(r?.until ? { until: r.until, reason: r.reason } : null);
+    });
+  }, [active, me?.muted_until]);
+
+  useEffect(() => {
+    if (!active || !uid) return;
+    supabase.from('room_mutes').select('channel_id').then(({ data }) => setMutedRooms(new Set(((data as { channel_id: number }[]) ?? []).map((x) => x.channel_id))));
+  }, [active, uid]);
+
+  const toggleRoomMute = useCallback(async (roomId: number) => {
+    if (!uid) return;
+    const muted = mutedRooms.has(roomId);
+    const { error } = muted
+      ? await supabase.from('room_mutes').delete().match({ user_id: uid, channel_id: roomId })
+      : await supabase.from('room_mutes').insert({ user_id: uid, channel_id: roomId });
+    if (error) return;
+    setMutedRooms((prev) => {
+      const next = new Set(prev);
+      if (muted) next.delete(roomId);
+      else next.add(roomId);
+      return next;
+    });
+  }, [uid, mutedRooms]);
+
+  // Scheduled messages are sent by the server every minute; the open site nudges it too.
+  useEffect(() => {
+    if (!active) return;
+    const t = setInterval(() => supabase.rpc('send_due_scheduled'), 60000);
+    return () => clearInterval(t);
+  }, [active]);
+
   // While pending, poll so the user is let in as soon as an admin approves.
   useEffect(() => {
     if (!uid || me?.status !== 'pending') return;
@@ -200,6 +243,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       canRemove: active && (me?.role === 'inspector' || me?.role === 'moderator' || me?.role === 'admin'),
       isOwner: active && !!me && me.id === ownerId,
       ownerId,
+      myMute,
+      mutedRooms,
+      toggleRoomMute,
       recovering,
       endRecovery: () => setRecovering(false),
       nameOf,
@@ -208,7 +254,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       reloadRooms,
       reloadConversations,
     }),
-    [session, loading, me, profiles, rooms, schemaOutdated, conversations, online, active, ownerId, recovering, nameOf, reloadMe, reloadProfiles, reloadRooms, reloadConversations],
+    [session, loading, me, profiles, rooms, schemaOutdated, conversations, online, active, ownerId, myMute, mutedRooms, toggleRoomMute, recovering, nameOf, reloadMe, reloadProfiles, reloadRooms, reloadConversations],
   );
 
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;

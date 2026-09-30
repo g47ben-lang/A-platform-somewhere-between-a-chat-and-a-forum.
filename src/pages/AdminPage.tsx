@@ -14,8 +14,9 @@ import PreapprovedAdmin from '../components/PreapprovedAdmin';
 import RosterAdmin from '../components/RosterAdmin';
 import OwnerTools from '../components/OwnerTools';
 import FeedbackAdmin from '../components/FeedbackAdmin';
+import AdminStats from '../components/AdminStats';
 
-type Tab = 'members' | 'preapproved' | 'anonymous' | 'rooms' | 'media' | 'owner' | 'feedback';
+type Tab = 'members' | 'preapproved' | 'anonymous' | 'rooms' | 'media' | 'owner' | 'feedback' | 'stats';
 type ProfilePatch = Partial<Pick<Profile, 'status' | 'role' | 'accept_anonymous' | 'can_send_anonymous' | 'join_seen'>>;
 
 export default function AdminPage() {
@@ -115,6 +116,9 @@ export default function AdminPage() {
           </button>
           <button className={tab === 'preapproved' ? 'on' : ''} onClick={() => setTab('preapproved')} role="tab">
             <Icon name="check" size={20} /> אישור מראש
+          </button>
+          <button className={tab === 'stats' ? 'on' : ''} onClick={() => setTab('stats')} role="tab">
+            <Icon name="bar_chart" size={20} /> סטטיסטיקה
           </button>
           <button className={tab === 'feedback' ? 'on' : ''} onClick={() => setTab('feedback')} role="tab">
             <Icon name="mail" size={20} /> פניות
@@ -291,6 +295,8 @@ export default function AdminPage() {
         {tab === 'owner' && showOwnerTab && <OwnerTools />}
 
         {tab === 'feedback' && <FeedbackAdmin />}
+
+        {tab === 'stats' && <AdminStats />}
 
         {tab === 'preapproved' && (
           <>

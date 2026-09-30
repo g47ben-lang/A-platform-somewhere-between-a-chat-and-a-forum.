@@ -18,6 +18,7 @@ import { useProfileCard } from '../components/ProfileCard';
 import RoomDialog from '../components/RoomDialog';
 import Highlights from '../components/Highlights';
 import GagMaker from '../components/GagMaker';
+import { muteUntilLabel, ReportDialog, ScheduleDialog } from '../components/Moderation';
 import { nextCountdown } from '../lib/zmanim';
 import { hebrewLabel } from '../lib/hebrew';
 
@@ -33,7 +34,7 @@ export default function RoomPage() {
   const params = useParams();
   const [search, setSearch] = useSearchParams();
   const linkedId = Number(search.get('m')) || null;
-  const { rooms, mainRoom, me, isMod, canRemove, isOwner, ownerId, profiles, online, nameOf, reloadRooms } = useApp();
+  const { rooms, mainRoom, me, isMod, canRemove, isOwner, ownerId, profiles, online, nameOf, reloadRooms, myMute, mutedRooms, toggleRoomMute } = useApp();
   const room = params.roomId ? rooms.find((r) => r.id === Number(params.roomId)) : mainRoom;
   const roomId = room?.id ?? null;
   const { confirm, toast } = useFeedback();
@@ -52,6 +53,8 @@ export default function RoomPage() {
   const [stars, setStars] = useState<Set<number>>(new Set());
   const [pinned, setPinned] = useState<Message[]>([]);
   const [gagOpen, setGagOpen] = useState(false);
+  const [reportId, setReportId] = useState<number | null>(null);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const [purpose, setPurpose] = useState<string | null>(null);
   const [schedule, setSchedule] = useState<{ on: boolean; title: string; date: string }>({ on: false, title: '', date: '' });
   // Calendar events announced by messages of this room (blessings room): message id -> label.
@@ -418,6 +421,7 @@ export default function RoomPage() {
     if (!room?.admin_only_post || isMod) a.push({ icon: 'keep', label: m.pinned_at ? 'הסרה מהלוח' : 'הצמדה ללוח', onClick: () => togglePin(m) });
     if (!item.mine && !m.anonymous && !m.system && m.author_id && m.body.trim().length >= 5)
       a.push({ icon: 'format_quote', label: 'העברה ל"מי אמר את זה?"', onClick: () => grabQuote(m) });
+    if (!item.mine && !m.system) a.push({ icon: 'error', label: 'דיווח על ההודעה', onClick: () => setReportId(m.id) });
     a.push({ icon: 'link', label: 'העתקת הקישור להודעה', onClick: () => copy(messageLink(room!.is_main ? '/' : `/room/${roomId}`, m.id), 'הקישור הועתק') });
     if (m.body) a.push({ icon: 'content_copy', label: 'העתקת הטקסט', onClick: () => copy(m.body, 'הטקסט הועתק') });
     if (item.mine && m.body) a.push({ icon: 'edit', label: 'עריכה', onClick: () => { setReplyTo(null); setEditing(m); composer.current?.setText(m.body); }, divider: true });
@@ -460,25 +464,33 @@ export default function RoomPage() {
         <Icon name="group" size={18} />
         <span>{online.size}</span>
       </button>
-      {canManage && (
-        <div className="menu-anchor">
-          <button className="icon-btn" onClick={() => setMenu((v) => !v)} aria-label="אפשרויות החדר">
-            <Icon name="more_vert" />
-          </button>
-          {menu && (
-            <div className="menu" onMouseLeave={() => setMenu(false)}>
+      <div className="menu-anchor">
+        <button className="icon-btn" onClick={() => setMenu((v) => !v)} aria-label="אפשרויות החדר">
+          <Icon name="more_vert" />
+        </button>
+        {menu && (
+          <div className="menu" onMouseLeave={() => setMenu(false)}>
+            {canWrite && !myMute && (
+              <button className="menu-item" onClick={() => { setMenu(false); setScheduleOpen(true); }}>
+                <Icon name="schedule" /> הודעה מתוזמנת
+              </button>
+            )}
+            <button className="menu-item" onClick={() => { setMenu(false); toggleRoomMute(room.id); }}>
+              <Icon name={mutedRooms.has(room.id) ? 'notifications' : 'notifications_off'} /> {mutedRooms.has(room.id) ? 'ביטול השתקת החדר' : 'השתקת החדר'}
+            </button>
+            {canManage && (
               <button className="menu-item" onClick={() => { setMenu(false); setEditRoom(true); }}>
                 <Icon name="edit" /> עריכת החדר
               </button>
-              {!room.is_main && (
-                <button className="menu-item danger" onClick={deleteRoom}>
-                  <Icon name="delete" /> מחיקת החדר
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      )}
+            )}
+            {canManage && !room.is_main && (
+              <button className="menu-item danger" onClick={deleteRoom}>
+                <Icon name="delete" /> מחיקת החדר
+              </button>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 
@@ -579,7 +591,7 @@ export default function RoomPage() {
           onSend={send}
           mentionNames={mentionNames}
           onTyping={(anon, stop) => ping(anon, stop)}
-          disabledReason={canWrite ? undefined : 'רק מנהלי הקהילה כותבים בחדר הזה'}
+          disabledReason={myMute ? `הושתקת ${muteUntilLabel(myMute.until)}` : canWrite ? undefined : 'רק מנהלי הקהילה כותבים בחדר הזה'}
           context={
             editing ? (
               <><Icon name="edit" size={16} /> עריכת הודעה</>
@@ -650,6 +662,8 @@ export default function RoomPage() {
       )}
 
       {editRoom && <RoomDialog room={room} onClose={() => setEditRoom(false)} />}
+      {reportId && <ReportDialog messageId={reportId} onClose={() => setReportId(null)} />}
+      {scheduleOpen && <ScheduleDialog roomId={room.id} onClose={() => setScheduleOpen(false)} />}
       {gagOpen && <GagMaker roomId={room.id} onClose={() => setGagOpen(false)} onSent={() => undefined} />}
       {forward && <ForwardDialog body={forward.body} attachment={forward.attachment} onClose={() => setForward(null)} />}
     </div>

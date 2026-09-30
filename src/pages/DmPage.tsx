@@ -13,6 +13,7 @@ import Composer, { type ComposerHandle, type SendOptions } from '../components/C
 import { useFeedback } from '../components/Feedback';
 import ForwardDialog from '../components/ForwardDialog';
 import Icon from '../components/Icon';
+import { muteUntilLabel } from '../components/Moderation';
 import { useProfileCard } from '../components/ProfileCard';
 
 const PAGE = 80;
@@ -21,7 +22,7 @@ export default function DmPage() {
   const convId = Number(useParams().convId);
   const [search, setSearch] = useSearchParams();
   const linkedId = Number(search.get('m')) || null;
-  const { me, conversations, online, nameOf, reloadConversations } = useApp();
+  const { me, conversations, online, nameOf, reloadConversations, myMute } = useApp();
   const { confirm, toast } = useFeedback();
   const openCard = useProfileCard();
   const conv = conversations.find((c) => c.id === convId);
@@ -274,7 +275,8 @@ export default function DmPage() {
 
   const recipientOfAnon = conv.anonymous && !conv.i_am_hidden;
   let disabledReason: string | undefined;
-  if (conv.closed) disabledReason = recipientOfAnon ? 'חסמת את השיחה הזו' : 'הנמען חסם את השיחה';
+  if (myMute) disabledReason = `הושתקת ${muteUntilLabel(myMute.until)}`;
+  else if (conv.closed) disabledReason = recipientOfAnon ? 'חסמת את השיחה הזו' : 'הנמען חסם את השיחה';
   else if (conv.i_am_hidden && !me?.can_send_anonymous) disabledReason = 'ההרשאה שלך לשלוח הודעות אנונימיות בוטלה על ידי מנהלי הקהילה';
 
   function menuFor(item: StreamItem): MenuAction[] {
