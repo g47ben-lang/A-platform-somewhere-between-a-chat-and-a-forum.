@@ -14,4 +14,4 @@ export const supabase = createClient(url || 'http://localhost', key || 'missing-
 /** Where email links (confirmation, password reset) should land: the app root, without any hash route. */
 export const appUrl = () => window.location.origin + window.location.pathname;
 
-export const SITE_NAME = (import.meta.env.VITE_SITE_NAME as string | undefined) || 'הקהילה';
+export const SITE_NAME = (import.meta.env.VITE_SITE_NAME as string | undefined) || 'מערכת ועד קמ"ד ישיבת חברון';

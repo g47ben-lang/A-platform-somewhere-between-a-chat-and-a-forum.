@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import type { Session } from '@supabase/supabase-js';
+import type { RealtimeChannel, Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
-import type { Channel, Profile } from './types';
+import { subscribe } from './lib/realtime';
+import type { Channel, Conversation, Profile } from './types';
 
 interface AppState {
   session: Session | null;
@@ -9,14 +10,17 @@ interface AppState {
   me: Profile | null;
   profiles: Map<string, Profile>;
   channels: Channel[];
+  conversations: Conversation[];
   online: Set<string>;
   isMod: boolean;
   isAdmin: boolean;
   recovering: boolean;
   endRecovery: () => void;
+  nameOf: (id: string | null | undefined) => string;
   reloadMe: () => Promise<void>;
   reloadProfiles: () => Promise<void>;
   reloadChannels: () => Promise<void>;
+  reloadConversations: () => Promise<void>;
 }
 
 const Ctx = createContext<AppState | null>(null);
@@ -33,6 +37,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<Profile | null>(null);
   const [profiles, setProfiles] = useState<Map<string, Profile>>(new Map());
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [online, setOnline] = useState<Set<string>>(new Set());
   const [recovering, setRecovering] = useState(false);
 
@@ -71,6 +76,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (data) setChannels(data as Channel[]);
   }, []);
 
+  const reloadConversations = useCallback(async () => {
+    const { data } = await supabase.rpc('my_conversations');
+    if (data) setConversations(data as Conversation[]);
+  }, []);
+
   useEffect(() => {
     if (!uid) return;
     setLoading(true);
@@ -79,22 +89,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const active = me?.status === 'active';
 
-  // Load shared data once approved; keep member list fresh via realtime.
+  // Shared data once approved, kept fresh via realtime.
   useEffect(() => {
     if (!active) return;
     reloadProfiles();
     reloadChannels();
-    const ch = supabase
-      .channel('profiles-feed')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
-        reloadProfiles();
-        reloadMe();
-      })
-      .subscribe();
-    return () => {
-      supabase.removeChannel(ch);
-    };
-  }, [active, reloadProfiles, reloadChannels, reloadMe]);
+    reloadConversations();
+    return subscribe('app', (ch) =>
+      ch
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
+          reloadProfiles();
+          reloadMe();
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'dm_messages' }, () => reloadConversations()),
+    );
+  }, [active, reloadProfiles, reloadChannels, reloadConversations, reloadMe]);
 
   // While pending, poll so the user is let in as soon as an admin approves.
   useEffect(() => {
@@ -103,19 +112,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(t);
   }, [uid, me?.status, reloadMe]);
 
-  // Presence: who is online right now.
+  // Presence needs one shared topic, so wait for any previous instance to be fully removed.
   useEffect(() => {
     if (!active || !uid) return;
-    const ch = supabase.channel('online', { config: { presence: { key: uid } } });
-    ch.on('presence', { event: 'sync' }, () => {
-      setOnline(new Set(Object.keys(ch.presenceState())));
-    }).subscribe((status) => {
-      if (status === 'SUBSCRIBED') ch.track({ at: Date.now() });
-    });
+    let cancelled = false;
+    let ch: RealtimeChannel | null = null;
+    (async () => {
+      const stale = supabase.getChannels().filter((c) => c.topic === 'realtime:online');
+      await Promise.all(stale.map((c) => supabase.removeChannel(c)));
+      if (cancelled) return;
+      ch = supabase.channel('online', { config: { presence: { key: uid } } });
+      ch.on('presence', { event: 'sync' }, () => {
+        if (ch) setOnline(new Set(Object.keys(ch.presenceState())));
+      }).subscribe((status) => {
+        if (status === 'SUBSCRIBED') ch?.track({ at: Date.now() });
+      });
+    })();
     return () => {
-      supabase.removeChannel(ch);
+      cancelled = true;
+      if (ch) supabase.removeChannel(ch);
     };
   }, [active, uid]);
+
+  const nameOf = useCallback((id: string | null | undefined) => (id ? profiles.get(id)?.display_name ?? 'משתמש' : 'אנונימי'), [profiles]);
 
   const value = useMemo<AppState>(
     () => ({
@@ -124,16 +143,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
       me,
       profiles,
       channels,
+      conversations,
       online,
       isMod: active && (me?.role === 'moderator' || me?.role === 'admin'),
       isAdmin: active && me?.role === 'admin',
       recovering,
       endRecovery: () => setRecovering(false),
+      nameOf,
       reloadMe,
       reloadProfiles,
       reloadChannels,
+      reloadConversations,
     }),
-    [session, loading, me, profiles, channels, online, active, recovering, reloadMe, reloadProfiles, reloadChannels],
+    [session, loading, me, profiles, channels, conversations, online, active, recovering, nameOf, reloadMe, reloadProfiles, reloadChannels, reloadConversations],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

@@ -1,5 +1,8 @@
 import { useState, type FormEvent } from 'react';
 import { appUrl, supabase, SITE_NAME } from '../supabase';
+import { errorText } from '../lib/format';
+import Icon from '../components/Icon';
+import PasswordFields, { passwordProblem } from '../components/PasswordFields';
 
 type Mode = 'login' | 'signup' | 'reset';
 
@@ -7,94 +10,119 @@ export default function AuthPage() {
   const [mode, setMode] = useState<Mode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [pw, setPw] = useState({ password: '', confirm: '' });
   const [name, setName] = useState('');
+  const [showPw, setShowPw] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
 
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    setBusy(true);
+  function switchMode(m: Mode) {
+    setMode(m);
     setError('');
     setInfo('');
+  }
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setError('');
+    setInfo('');
+    if (mode === 'signup') {
+      if (name.trim().length < 2) return setError('יש להזין שם תצוגה (לפחות 2 תווים)');
+      const problem = passwordProblem(pw.password, pw.confirm);
+      if (problem) return setError(problem);
+    }
+    setBusy(true);
     try {
       if (mode === 'login') {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
         if (error) throw error;
       } else if (mode === 'signup') {
         const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
+          email: email.trim(),
+          password: pw.password,
           options: { data: { display_name: name.trim() }, emailRedirectTo: appUrl() },
         });
         if (error) throw error;
-        if (!data.session) setInfo('נשלח אליך מייל לאימות הכתובת. אחרי האימות אפשר להתחבר.');
+        if (!data.session) setInfo('שלחנו אליך מייל לאימות הכתובת. לאחר האימות אפשר להתחבר.');
       } else {
-        const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: appUrl() });
+        const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: appUrl() });
         if (error) throw error;
-        setInfo('אם הכתובת רשומה, נשלח אליה קישור לאיפוס סיסמה.');
+        setInfo('אם הכתובת רשומה במערכת, נשלח אליה קישור לאיפוס הסיסמה.');
       }
     } catch (err) {
-      setError(translateError((err as Error).message));
+      setError(errorText(err));
     } finally {
       setBusy(false);
     }
   }
 
+  const heading = mode === 'login' ? 'התחברות' : mode === 'signup' ? 'יצירת חשבון' : 'איפוס סיסמה';
+  const sub =
+    mode === 'login' ? `המשך אל ${SITE_NAME}` : mode === 'signup' ? 'ההצטרפות מחייבת אישור של מנהלי הקהילה' : 'נשלח אליך קישור לבחירת סיסמה חדשה';
+
   return (
-    <div className="center-screen">
-      <form className="card narrow auth" onSubmit={submit}>
-        <h1>💬 {SITE_NAME}</h1>
-        <div className="tabs">
-          <button type="button" className={mode === 'login' ? 'active' : ''} onClick={() => setMode('login')}>התחברות</button>
-          <button type="button" className={mode === 'signup' ? 'active' : ''} onClick={() => setMode('signup')}>הרשמה</button>
+    <div className="auth-screen">
+      <form className="auth-card" onSubmit={submit} noValidate>
+        <div className="auth-brand">
+          <span className="brand-mark large"><Icon name="forum" filled size={30} /></span>
+          <span>{SITE_NAME}</span>
         </div>
+        <h1 className="auth-title">{heading}</h1>
+        <p className="auth-sub">{sub}</p>
+
         {mode === 'signup' && (
-          <label>
-            שם תצוגה
-            <input value={name} onChange={(e) => setName(e.target.value)} required maxLength={40} autoComplete="name" />
+          <label className="field">
+            <span>שם מלא / שם תצוגה</span>
+            <input value={name} onChange={(e) => setName(e.target.value)} maxLength={40} autoComplete="name" required />
           </label>
         )}
-        <label>
-          אימייל
-          <input type="email" dir="ltr" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
+        <label className="field">
+          <span>כתובת אימייל</span>
+          <input type="email" dir="ltr" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required />
         </label>
-        {mode !== 'reset' && (
-          <label>
-            סיסמה
-            <input
-              type="password"
-              dir="ltr"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              minLength={6}
-              autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
-            />
+        {mode === 'login' && (
+          <label className="field">
+            <span>סיסמה</span>
+            <div className="input-with-btn">
+              <input
+                type={showPw ? 'text' : 'password'}
+                dir="ltr"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                required
+              />
+              <button type="button" className="icon-btn small" onClick={() => setShowPw((s) => !s)} aria-label={showPw ? 'הסתרת הסיסמה' : 'הצגת הסיסמה'}>
+                <Icon name={showPw ? 'visibility_off' : 'visibility'} size={20} />
+              </button>
+            </div>
           </label>
         )}
-        {error && <div className="error">{error}</div>}
-        {info && <div className="info">{info}</div>}
-        <button className="btn primary" disabled={busy}>
-          {mode === 'login' ? 'כניסה' : mode === 'signup' ? 'יצירת חשבון' : 'שליחת קישור איפוס'}
-        </button>
+        {mode === 'signup' && <PasswordFields value={pw} onChange={setPw} label="סיסמה" />}
+
+        {error && <div className="alert error"><Icon name="error" size={18} /> {error}</div>}
+        {info && <div className="alert info"><Icon name="mail" size={18} /> {info}</div>}
+
+        <div className="auth-actions">
+          {mode === 'login' && (
+            <button type="button" className="btn text" onClick={() => switchMode('reset')}>שכחת סיסמה?</button>
+          )}
+          {mode !== 'login' && (
+            <button type="button" className="btn text" onClick={() => switchMode('login')}>יש לי כבר חשבון</button>
+          )}
+          <button className="btn filled" disabled={busy || !email.trim()}>
+            {busy ? 'רגע…' : mode === 'login' ? 'התחברות' : mode === 'signup' ? 'יצירת חשבון' : 'שליחת קישור'}
+          </button>
+        </div>
+
         {mode === 'login' && (
-          <button type="button" className="link" onClick={() => setMode('reset')}>שכחתי סיסמה</button>
+          <div className="auth-footer">
+            עדיין אין לך חשבון?{' '}
+            <button type="button" className="link" onClick={() => switchMode('signup')}>יצירת חשבון</button>
+          </div>
         )}
-        {mode === 'reset' && (
-          <button type="button" className="link" onClick={() => setMode('login')}>חזרה להתחברות</button>
-        )}
-        {mode === 'signup' && <p className="muted small">אחרי ההרשמה, מנהל/ת הקהילה יאשרו את החשבון.</p>}
       </form>
     </div>
   );
-}
-
-function translateError(msg: string): string {
-  if (/Invalid login credentials/i.test(msg)) return 'אימייל או סיסמה שגויים';
-  if (/already registered/i.test(msg)) return 'כתובת האימייל כבר רשומה';
-  if (/Email not confirmed/i.test(msg)) return 'יש לאשר קודם את כתובת האימייל (בדקו את תיבת הדואר)';
-  if (/Password should be/i.test(msg)) return 'הסיסמה חייבת להכיל לפחות 6 תווים';
-  if (/rate limit/i.test(msg)) return 'יותר מדי ניסיונות, נסו שוב בעוד כמה דקות';
-  return msg;
 }
