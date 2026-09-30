@@ -273,7 +273,7 @@ export default function RoomPage() {
   async function grabQuote(m: Message) {
     const { error } = await supabase.rpc('grab_quote', { p_message: m.id });
     if (error) return toast(errorText(error), 'error');
-    toast('הציטוט הועבר ל"מי אמר את זה?" בפינת החבר\'ה');
+    toast('הציטוט הועבר ל"מי אמר את זה?" (בסמל "עוד" למעלה)');
   }
 
   async function send(text: string, opts: SendOptions) {

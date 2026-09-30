@@ -7,6 +7,7 @@ import Avatar, { SpaceTile } from './Avatar';
 import Icon from './Icon';
 import NewChatDialog from './NewChatDialog';
 import RoomDialog from './RoomDialog';
+import { useMoreNews } from '../lib/useMoreNews';
 
 export function useConversationTitle() {
   const { nameOf } = useApp();
@@ -15,6 +16,8 @@ export function useConversationTitle() {
 
 export default function Layout() {
   const { me, rooms, mainRoom, conversations, online, isAdmin, profiles } = useApp();
+  const news = useMoreNews(me?.id, me?.status === 'active');
+  const [noticeClosed, setNoticeClosed] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [newChat, setNewChat] = useState(false);
@@ -34,6 +37,8 @@ export default function Layout() {
   useEffect(() => {
     setDrawer(false);
     setMenu(false);
+    if (location.pathname === '/more') news.markSeen();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
 
   useEffect(() => {
@@ -76,6 +81,10 @@ export default function Layout() {
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="חיפוש בצ'אט" aria-label="חיפוש" />
         </form>
         <div className="topbar-end" ref={menuRef}>
+          <Link to="/more" className="icon-btn more-btn" aria-label="עוד" title="עוד: וידויים ו'מי אמר את זה?'">
+            <Icon name="interests" />
+            {(news.confession || news.quiz) && <span className="menu-dot" />}
+          </Link>
           <button className="avatar-btn" onClick={() => setMenu((m) => !m)} aria-label="החשבון שלי">
             <Avatar id={me.id} name={me.display_name} size={34} />
           </button>
@@ -96,6 +105,21 @@ export default function Layout() {
         </div>
       </header>
 
+      {(news.confession || news.quiz) && !noticeClosed && location.pathname !== '/more' && (
+        <div className="more-notice" role="status">
+          <Icon name="interests" size={22} />
+          <div className="grow">
+            <strong>{news.confession && news.quiz ? 'חדש ב"עוד"' : news.confession ? 'וידוי חדש' : 'ציטוט חדש'}</strong>
+            <span className="muted small">
+              {news.confession && 'מישהו העלה וידוי אנונימי. '}
+              {news.quiz && 'יש ציטוט חדש ב"מי אמר את זה?", מי יודע מי כתב?'}
+            </span>
+          </div>
+          <button className="btn tonal small" onClick={() => { setNoticeClosed(true); navigate(news.confession ? '/more' : '/more?tab=quotes'); }}>לצפייה</button>
+          <button className="icon-btn small" aria-label="סגירה" onClick={() => { setNoticeClosed(true); news.markSeen(); }}><Icon name="close" size={16} /></button>
+        </div>
+      )}
+
       <aside className="sidebar">
         <button className="new-chat" onClick={() => setNewChat(true)}>
           <Icon name="edit" />
@@ -115,10 +139,6 @@ export default function Layout() {
           <NavLink to="/events" className="nav-item">
             <Icon name="calendar_month" />
             <span className="nav-label">לוח אירועים</span>
-          </NavLink>
-          <NavLink to="/fun" className="nav-item">
-            <Icon name="mood" />
-            <span className="nav-label">פינת החבר'ה</span>
           </NavLink>
           <NavLink to="/polls" className="nav-item">
             <Icon name="ballot" />

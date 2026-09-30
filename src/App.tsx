@@ -76,7 +76,8 @@ export default function App() {
         <Route path="polls/:pollId" element={<PollsPage />} />
         <Route path="contact" element={<ContactPage />} />
         <Route path="events" element={<EventsPage />} />
-        <Route path="fun" element={<FunPage />} />
+        <Route path="more" element={<FunPage />} />
+        <Route path="fun" element={<Navigate to="/more" replace />} />
         <Route path="search" element={<SearchPage />} />
         <Route path="admin" element={isAdmin ? <AdminPage /> : <Navigate to="/" />} />
         {/* links from earlier versions */}

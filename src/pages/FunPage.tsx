@@ -9,15 +9,15 @@ import Icon from '../components/Icon';
 const REACTIONS = ['😂', '😱', '🙈', '👏', '🤯', '🫡'];
 type Tab = 'confessions' | 'quotes';
 
-/** פינת החבר'ה: anonymous confessions and the "who said it?" game. */
+/** "עוד" (/more): anonymous confessions and the "who said it?" game. */
 export default function FunPage() {
   const [tab, setTab] = useState<Tab>(() => (location.hash.includes('tab=quotes') ? 'quotes' : 'confessions'));
   return (
     <div className="pane scroll-pane">
       <div className="page narrow-page">
         <header className="page-head">
-          <h1>פינת החבר'ה</h1>
-          <p className="muted">וידויים בעילום שם ומשחק "מי אמר את זה?". בכיף ובכבוד.</p>
+          <h1>עוד</h1>
+          <p className="muted">וידויים בעילום שם ומשחק "מי אמר את זה?".</p>
         </header>
         <div className="tabs" role="tablist">
           <button className={tab === 'confessions' ? 'on' : ''} onClick={() => setTab('confessions')} role="tab">
