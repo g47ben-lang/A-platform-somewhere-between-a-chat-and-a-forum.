@@ -37,5 +37,5 @@ emoji set in `src/lib/emoji.ts` is curated for that audience (no immodest/romant
 
 ## Checks before pushing
 - `npm run build` (typecheck + bundle)
-- `supabase/tests/run.sh` against a local Postgres 16 (mocks Supabase `auth` schema): permission tests on a fresh install plus upgrade tests from `tests/fixtures/schema_v1.sql`, `schema_v2.sql`, `schema_v3.sql`, `schema_v4.sql`, `schema_v5.sql`, `schema_v6.sql`, `schema_v7.sql`, `schema_v8.sql`, `schema_v9.sql`, `schema_v10.sql`, `schema_v11.sql` and `schema_v12.sql`. Add a test for any policy/trigger change; when making a breaking schema change, snapshot the current schema as the next fixture.
+- `supabase/tests/run.sh` against a local Postgres 16 (mocks Supabase `auth` schema): permission tests on a fresh install plus upgrade tests from `tests/fixtures/schema_v1.sql`, `schema_v2.sql`, `schema_v3.sql`, `schema_v4.sql`, `schema_v5.sql`, `schema_v6.sql`, `schema_v7.sql`, `schema_v8.sql`, `schema_v9.sql`, `schema_v10.sql`, `schema_v11.sql`, `schema_v12.sql` and `schema_v13.sql`. Add a test for any policy/trigger change; when making a breaking schema change, snapshot the current schema as the next fixture.
 - `schema.sql` must stay idempotent (safe to re-run on the live project).

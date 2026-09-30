@@ -217,82 +217,6 @@ create table if not exists quiz_guesses (
   primary key (quiz_id, user_id)
 );
 
--- ---------- Moderation: reports and temporary muting ----------
-create table if not exists message_reports (
-  id           bigint generated always as identity primary key,
-  message_id   bigint not null references messages on delete cascade,
-  reporter_id  uuid not null references profiles on delete cascade,
-  reason       text check (char_length(reason) <= 300),
-  status       text not null default 'open' check (status in ('open', 'handled')),
-  handled_by   uuid references profiles on delete set null,
-  handled_at   timestamptz,
-  created_at   timestamptz not null default now(),
-  unique (message_id, reporter_id)
-);
--- A muted member reads but cannot write. muted_until is public (the profile shows "מורחק");
--- who muted him and why sit in mute_log, which only moderators read.
-alter table profiles add column if not exists muted_until timestamptz;
-create table if not exists mute_log (
-  id          bigint generated always as identity primary key,
-  user_id     uuid not null references profiles on delete cascade,
-  muted_by    uuid references profiles on delete set null,
-  reason      text check (char_length(reason) <= 300),
-  until       timestamptz not null,
-  created_at  timestamptz not null default now()
-);
-
--- ---------- Scheduled messages & muted rooms ----------
-create table if not exists scheduled_messages (
-  id          bigint generated always as identity primary key,
-  user_id     uuid not null references profiles on delete cascade,
-  channel_id  bigint not null references channels on delete cascade,
-  body        text not null check (char_length(body) between 1 and 4000),
-  send_at     timestamptz not null,
-  created_at  timestamptz not null default now(),
-  sent_at     timestamptz,
-  error       text
-);
-create index if not exists scheduled_due_idx on scheduled_messages (send_at) where sent_at is null;
-create table if not exists room_mutes (
-  user_id     uuid not null references profiles on delete cascade,
-  channel_id  bigint not null references channels on delete cascade,
-  primary key (user_id, channel_id)
-);
-
--- ---------- Push notifications (installed app / browser, even when the site is closed) ----------
-create table if not exists push_subscriptions (
-  endpoint    text primary key,
-  user_id     uuid not null references profiles on delete cascade,
-  p256dh      text not null,
-  auth        text not null,
-  created_at  timestamptz not null default now()
-);
-create table if not exists push_prefs (
-  user_id     uuid primary key references profiles on delete cascade,
-  on_dm       boolean not null default true,
-  on_mention  boolean not null default true,
-  on_reply    boolean not null default true,
-  on_poll     boolean not null default false,
-  no_shabbat  boolean not null default true
-);
-create table if not exists push_queue (
-  id          bigint generated always as identity primary key,
-  user_id     uuid not null references profiles on delete cascade,
-  ref         text not null,
-  title       text not null,
-  body        text not null default '',
-  link        text not null default '',
-  created_at  timestamptz not null default now(),
-  sent_at     timestamptz
-);
-create unique index if not exists push_queue_unique on push_queue (user_id, ref);
--- VAPID keys, created by the "send-push" Edge Function on its first run. Never readable by members.
-create table if not exists push_config (
-  id           int primary key default 1 check (id = 1),
-  public_key   text not null,
-  private_key  text not null
-);
-
 -- ---------- Events calendar ----------
 -- Anyone adds yeshiva events. A new event that duplicates or contradicts an existing one (same name on another
 -- date, or a similar name on the same date) is saved as 'conflict': the original's author may accept the new
@@ -633,11 +557,6 @@ language sql stable security definer set search_path = public as $$
                  where id = auth.uid() and status = 'active' and role::text in ('inspector', 'moderator', 'admin'));
 $$;
 
-create or replace function is_muted() returns boolean
-language sql stable security definer set search_path = public as $$
-  select exists (select 1 from profiles where id = auth.uid() and muted_until > now());
-$$;
-
 create or replace function can_send_anon() returns boolean
 language sql stable security definer set search_path = public as $$
   select exists (select 1 from profiles where id = auth.uid() and status = 'active' and can_send_anonymous);
@@ -851,9 +770,6 @@ create trigger on_auth_user_created
 create or replace function guard_profile_update() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
-  if coalesce(current_setting('app.muting', true), '') <> '1' and auth.uid() is not null then
-    new.muted_until := old.muted_until;
-  end if;
   -- The owner always stays an active admin.
   if auth.uid() is not null and is_owner_id(old.id) then
     new.role   := old.role;
@@ -1017,7 +933,6 @@ declare
   c channels;
 begin
   if not is_active() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  if is_muted() then raise exception 'הושתקת זמנית ואינך יכול לכתוב כרגע' using errcode = '42501'; end if;
   if char_length(trim(coalesce(p_name, ''))) = 0 then raise exception 'יש לתת שם לחדר'; end if;
   if (select count(*) from channels where created_by = auth.uid()) >= 20 and not is_mod() then
     raise exception 'הגעת למספר החדרים המרבי שאפשר לפתוח';
@@ -1040,7 +955,6 @@ declare
   m messages;
 begin
   if not is_active() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  if is_muted() then raise exception 'הושתקת זמנית ואינך יכול לכתוב כרגע' using errcode = '42501'; end if;
   select * into ch from channels where id = p_channel;
   if not found then raise exception 'החדר לא נמצא'; end if;
   if ch.admin_only_post and not is_mod() then
@@ -1079,7 +993,6 @@ declare
   i int;
 begin
   if not is_active() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  if is_muted() then raise exception 'הושתקת זמנית ואינך יכול לכתוב כרגע' using errcode = '42501'; end if;
   if char_length(trim(coalesce(p_question, ''))) = 0 then raise exception 'יש לכתוב שאלה'; end if;
   select array_agg(left(trim(o), 100) order by n) into opts
     from unnest(coalesce(p_options, '{}')) with ordinality as u(o, n) where trim(o) <> '';
@@ -1151,12 +1064,6 @@ begin
 end $$;
 
 -- Admin: answer a request and/or mark it handled.
--- Admins: how many requests are waiting (sidebar badge).
-create or replace function open_feedback_count() returns int
-language sql stable security definer set search_path = public as $$
-  select case when is_admin() then (select count(*)::int from feedback where status = 'open') else 0 end;
-$$;
-
 create or replace function reply_feedback(p_id bigint, p_reply text, p_done boolean) returns void
 language plpgsql security definer set search_path = public as $$
 begin
@@ -1220,7 +1127,6 @@ declare
   nid bigint;
 begin
   if not is_active() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  if is_muted() then raise exception 'הושתקת זמנית ואינך יכול לכתוב כרגע' using errcode = '42501'; end if;
   if p_target = auth.uid() then raise exception 'אי אפשר להציע כינוי לעצמך'; end if;
   if not exists (select 1 from profiles where id = p_target and status = 'active') then raise exception 'המשתמש לא נמצא'; end if;
   if char_length(nm) < 2 then raise exception 'כינוי צריך לפחות 2 תווים'; end if;
@@ -1289,7 +1195,6 @@ declare
   m messages;
 begin
   if not is_active() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  if is_muted() then raise exception 'הושתקת זמנית ואינך יכול לכתוב כרגע' using errcode = '42501'; end if;
   if my_reputation() < gag_min_reputation() and not can_remove_content() then
     raise exception 'מחולל המבזקים פתוח מ-% נקודות מוניטין', gag_min_reputation() using errcode = '42501';
   end if;
@@ -1330,7 +1235,6 @@ language plpgsql security definer set search_path = public as $$
 declare
   cid bigint;
 begin
-  if is_muted() then raise exception 'הושתקת זמנית ואינך יכול לכתוב כרגע' using errcode = '42501'; end if;
   if not can_send_anon() then raise exception 'אין לך הרשאה לפרסם בעילום שם' using errcode = '42501'; end if;
   if char_length(trim(coalesce(p_body, ''))) < 3 then raise exception 'הווידוי קצר מדי'; end if;
   if (select count(*) from anon_authors a join confessions c on c.id = a.item_id
@@ -1360,7 +1264,6 @@ declare
   qid bigint;
 begin
   if not is_active() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  if is_muted() then raise exception 'הושתקת זמנית ואינך יכול לכתוב כרגע' using errcode = '42501'; end if;
   select * into m from messages where id = p_message;
   if not found or m.deleted or m.anonymous or m.system or m.author_id is null or char_length(m.body) < 5 then
     raise exception 'אי אפשר להעביר את ההודעה הזו';
@@ -1432,226 +1335,6 @@ begin
   delete from quote_quizzes where id = p_id;
 end $$;
 
--- ---------- Moderation: actions ----------
-create or replace function report_message(p_message bigint, p_reason text default null) returns void
-language plpgsql security definer set search_path = public as $$
-begin
-  if not is_active() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  if not exists (select 1 from messages where id = p_message and not deleted) then raise exception 'ההודעה לא נמצאה'; end if;
-  insert into message_reports (message_id, reporter_id, reason)
-  values (p_message, auth.uid(), nullif(left(trim(coalesce(p_reason, '')), 300), ''))
-  on conflict (message_id, reporter_id) do update set reason = coalesce(excluded.reason, message_reports.reason), status = 'open';
-end $$;
-
--- Content removers settle a report: delete the message, or keep it.
-create or replace function handle_report(p_message bigint, p_delete boolean) returns void
-language plpgsql security definer set search_path = public as $$
-begin
-  if not can_remove_content() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  if p_delete then update messages set deleted = true where id = p_message; end if;
-  update message_reports set status = 'handled', handled_by = auth.uid(), handled_at = now() where message_id = p_message;
-end $$;
-
--- Open reports with the message, for moderators. Reporters are not shown.
-create or replace function report_list()
-returns table (message_id bigint, channel_id bigint, author_id uuid, anonymous boolean, body text, attachment jsonb,
-               reports int, reasons text[], last_at timestamptz)
-language sql stable security definer set search_path = public as $$
-  select m.id, m.channel_id, m.author_id, m.anonymous, m.body, m.attachment, count(*)::int,
-         array_remove(array_agg(r.reason order by r.created_at), null), max(r.created_at)
-    from message_reports r join messages m on m.id = r.message_id
-   where r.status = 'open' and can_remove_content()
-   group by m.id order by max(r.created_at) desc;
-$$;
-
--- Admins and inspectors mute a member for a while (p_minutes null = until unmuted). Never admins or the owner.
-create or replace function mute_member(p_user uuid, p_minutes int, p_reason text default null) returns void
-language plpgsql security definer set search_path = public as $$
-declare
-  t profiles;
-  until timestamptz := case when p_minutes is null then 'infinity'::timestamptz else now() + make_interval(mins => p_minutes) end;
-begin
-  select * into t from profiles where id = p_user;
-  if not found or not can_remove_content() or p_user = auth.uid() or t.role::text = 'admin' or is_owner_id(p_user) then
-    raise exception 'אין הרשאה' using errcode = '42501';
-  end if;
-  perform set_config('app.muting', '1', true);
-  update profiles set muted_until = until where id = p_user;
-  perform set_config('app.muting', '', true);
-  insert into mute_log (user_id, muted_by, reason, until) values (p_user, auth.uid(), nullif(left(trim(coalesce(p_reason, '')), 300), ''), until);
-end $$;
-
-create or replace function unmute_member(p_user uuid) returns void
-language plpgsql security definer set search_path = public as $$
-begin
-  if not can_remove_content() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  perform set_config('app.muting', '1', true);
-  update profiles set muted_until = null where id = p_user;
-  perform set_config('app.muting', '', true);
-end $$;
-
--- The muted member's own view: until when and why (never who).
-create or replace function my_mute(out until timestamptz, out reason text)
-language sql stable security definer set search_path = public as $$
-  select p.muted_until, (select l.reason from mute_log l where l.user_id = p.id order by l.id desc limit 1)
-    from profiles p where p.id = auth.uid() and p.muted_until > now();
-$$;
-
--- ---------- Profile tags: "הראשון בבוקר" / "האחרון בלילה" ----------
--- The yeshiva day runs from 06:40 to 06:40 (Israel time). The first room message of a day earns
--- "the first in the morning"; the last one before 06:40 earns "the last at night". Anonymous and
--- automatic messages don't count.
-create or replace function day_titles(p_user uuid)
-returns table (first_count int, last_count int, first_now boolean, last_now boolean)
-language sql stable security definer set search_path = public as $$
-  with days as (
-    select ((m.created_at at time zone 'Asia/Jerusalem') - interval '6 hours 40 minutes')::date as d,
-           (array_agg(m.author_id order by m.created_at))[1] as first_by,
-           (array_agg(m.author_id order by m.created_at desc))[1] as last_by
-      from messages m
-     where not m.anonymous and not m.system and not m.deleted and m.author_id is not null
-       and m.created_at > now() - interval '400 days'
-     group by 1
-  ), today as (select ((now() at time zone 'Asia/Jerusalem') - interval '6 hours 40 minutes')::date as d)
-  select (select count(*)::int from days where first_by = p_user),
-         (select count(*)::int from days where last_by = p_user and d < (select d from today)),
-         exists (select 1 from days, today where days.d = today.d and first_by = p_user),
-         exists (select 1 from days, today where days.d = today.d - 1 and last_by = p_user)
-   where is_active();
-$$;
-
--- ---------- Statistics for admins ----------
-create or replace function admin_stats() returns jsonb
-language plpgsql stable security definer set search_path = public as $$
-declare
-  il date := (now() at time zone 'Asia/Jerusalem')::date;
-begin
-  if not is_admin() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  return jsonb_build_object(
-    'members', (select count(*) from profiles where status = 'active'),
-    'pending', (select count(*) from profiles where status = 'pending'),
-    'muted', (select count(*) from profiles where muted_until > now()),
-    'messages_today', (select count(*) from messages where (created_at at time zone 'Asia/Jerusalem')::date = il and not system),
-    'messages_week', (select count(*) from messages where created_at > now() - interval '7 days' and not system),
-    'dms_week', (select count(*) from dm_messages where created_at > now() - interval '7 days'),
-    'writers_today', (select count(distinct coalesce(m.author_id, a.author_id)) from messages m
-                        left join anon_authors a on a.kind = 'message' and a.item_id = m.id
-                       where (m.created_at at time zone 'Asia/Jerusalem')::date = il and not m.system),
-    'writers_week', (select count(distinct coalesce(m.author_id, a.author_id)) from messages m
-                       left join anon_authors a on a.kind = 'message' and a.item_id = m.id
-                      where m.created_at > now() - interval '7 days' and not m.system),
-    'new_members_week', (select count(*) from profiles where created_at > now() - interval '7 days'),
-    'open_reports', (select count(distinct message_id) from message_reports where status = 'open'),
-    'per_day', (select coalesce(jsonb_agg(jsonb_build_object('day', d, 'count', c) order by d), '[]') from (
-                  select g::date as d, (select count(*) from messages m where not m.system
-                                         and (m.created_at at time zone 'Asia/Jerusalem')::date = g::date) as c
-                    from generate_series(il - 13, il, interval '1 day') g) x),
-    'top_rooms', (select coalesce(jsonb_agg(jsonb_build_object('name', name, 'count', c) order by c desc), '[]') from (
-                    select ch.name, count(*) as c from messages m join channels ch on ch.id = m.channel_id
-                     where m.created_at > now() - interval '7 days' and not m.system group by ch.name order by 2 desc limit 5) y)
-  );
-end $$;
-
--- ---------- Scheduled messages ----------
-create or replace function schedule_message(p_channel bigint, p_body text, p_send_at timestamptz) returns bigint
-language plpgsql security definer set search_path = public as $$
-declare
-  ch channels;
-  sid bigint;
-begin
-  if not is_active() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  if is_muted() then raise exception 'הושתקת זמנית ואינך יכול לכתוב כרגע' using errcode = '42501'; end if;
-  select * into ch from channels where id = p_channel;
-  if not found then raise exception 'החדר לא נמצא'; end if;
-  if ch.admin_only_post and not is_mod() then raise exception 'רק מנהלים כותבים בחדר הזה' using errcode = '42501'; end if;
-  if char_length(trim(coalesce(p_body, ''))) = 0 then raise exception 'ההודעה ריקה'; end if;
-  if p_send_at < now() + interval '1 minute' or p_send_at > now() + interval '60 days' then
-    raise exception 'אפשר לתזמן מדקה ועד 60 יום קדימה';
-  end if;
-  if (select count(*) from scheduled_messages where user_id = auth.uid() and sent_at is null) >= 20 then
-    raise exception 'אפשר לתזמן עד 20 הודעות';
-  end if;
-  insert into scheduled_messages (user_id, channel_id, body, send_at) values (auth.uid(), p_channel, left(trim(p_body), 4000), p_send_at)
-  returning id into sid;
-  return sid;
-end $$;
-
--- Sends what is due, as its author (with the author's current permissions). Called every minute by
--- pg_cron and also by the site while it is open; idempotent.
-create or replace function send_due_scheduled() returns int
-language plpgsql security definer set search_path = public as $$
-declare
-  r record;
-  me text := current_setting('request.jwt.claim.sub', true);
-  n int := 0;
-begin
-  for r in select * from scheduled_messages where sent_at is null and send_at <= now() order by send_at limit 50
-           for update skip locked loop
-    begin
-      perform set_config('request.jwt.claim.sub', r.user_id::text, true);
-      perform send_message(r.channel_id, r.body);
-      update scheduled_messages set sent_at = now() where id = r.id;
-      n := n + 1;
-    exception when others then
-      update scheduled_messages set sent_at = now(), error = left(sqlerrm, 200) where id = r.id;
-    end;
-  end loop;
-  perform set_config('request.jwt.claim.sub', coalesce(me, ''), true);
-  return n;
-end $$;
-
--- ---------- Push notifications: queue ----------
-create or replace function queue_push(p_user uuid, p_flag text, p_ref text, p_title text, p_body text, p_link text)
-returns void
-language plpgsql security definer set search_path = public as $$
-declare
-  pr push_prefs;
-  on_flag boolean;
-  il timestamp := now() at time zone 'Asia/Jerusalem';
-begin
-  if not exists (select 1 from push_subscriptions where user_id = p_user) then return; end if;
-  select * into pr from push_prefs where user_id = p_user;
-  if not found then pr := row(p_user, true, true, true, false, true)::push_prefs; end if;
-  execute format('select ($1).%I', p_flag) using pr into on_flag;
-  if not coalesce(on_flag, false) then return; end if;
-  if pr.no_shabbat and ((extract(dow from il) = 5 and extract(hour from il) >= 15) or (extract(dow from il) = 6 and extract(hour from il) < 21)) then
-    return;
-  end if;
-  insert into push_queue (user_id, ref, title, body, link)
-  values (p_user, p_ref, left(p_title, 120), left(coalesce(p_body, ''), 200), p_link)
-  on conflict (user_id, ref) do nothing;
-end $$;
-
--- Wakes the "send-push" Edge Function (asynchronous, sent after commit). No-op without pg_net (tests).
-create or replace function push_kick() returns void
-language plpgsql security definer set search_path = public as $$
-begin
-  if to_regproc('net.http_post') is null then return; end if;
-  if not exists (select 1 from push_queue where sent_at is null) then return; end if;
-  execute $k$select net.http_post(url := 'https://aircrgkljjnomoemnetq.supabase.co/functions/v1/send-push',
-                                   headers := '{"Content-Type": "application/json"}'::jsonb, body := '{}'::jsonb)$k$;
-end $$;
-
--- For the Edge Function (service role): pending pushes with their devices; marks them sent.
-create or replace function push_batch()
-returns table (id bigint, endpoint text, p256dh text, auth text, title text, body text, link text)
-language plpgsql security definer set search_path = public as $$
-declare
-  ids bigint[];
-begin
-  select array_agg(q.id) into ids from (select q.id from push_queue q where q.sent_at is null order by q.id limit 200) q;
-  if ids is null then return; end if;
-  update push_queue set sent_at = now() where push_queue.id = any(ids);
-  delete from push_queue where sent_at < now() - interval '3 days';
-  return query select q.id, s.endpoint, s.p256dh, s.auth, q.title, q.body, q.link
-                 from push_queue q join push_subscriptions s on s.user_id = q.user_id where q.id = any(ids);
-end $$;
-
-create or replace function push_public_key() returns text
-language sql stable security definer set search_path = public as $$
-  select public_key from push_config where id = 1 and is_active();
-$$;
-
 -- ---------- Events calendar: actions ----------
 create or replace function norm_title(t text) returns text
 language sql immutable as $$ select lower(regexp_replace(trim(coalesce(t, '')), '\s+', ' ', 'g')) $$;
@@ -1676,7 +1359,6 @@ declare
   e events;
 begin
   if not is_active() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  if is_muted() then raise exception 'הושתקת זמנית ואינך יכול לכתוב כרגע' using errcode = '42501'; end if;
   if p_message is not null and not exists (select 1 from messages where id = p_message and author_id = auth.uid()) then
     raise exception 'אפשר לקשר רק הודעה שלך';
   end if;
@@ -1796,7 +1478,6 @@ begin
   if new.poll_id is not null then
     for r in select p.id from profiles p where p.status = 'active' and p.id is distinct from author loop
       perform queue_email(r.id, 'on_poll', 'poll', ref, 'סקר חדש ' || room, new.body, '#/polls/' || new.poll_id, ch.id, null, new.created_at);
-      perform queue_push(r.id, 'on_poll', ref, 'סקר חדש ' || room, new.body, '#/polls/' || new.poll_id);
     end loop;
   end if;
   if new.system then
@@ -1807,14 +1488,12 @@ begin
   for r in select p.id from profiles p
             where p.status = 'active' and p.id is distinct from author and position('@' || p.display_name in new.body) > 0 loop
     perform queue_email(r.id, 'on_mention', 'mention', ref, who || ' הזכיר אותך ' || room, new.body, link, ch.id, null, new.created_at);
-    perform queue_push(r.id, 'on_mention', ref, who || ' הזכיר אותך ' || room, new.body, link);
   end loop;
   if new.reply_to is not null then
     select coalesce(m.author_id, a.author_id) into parent
       from messages m left join anon_authors a on a.kind = 'message' and a.item_id = m.id where m.id = new.reply_to;
     if parent is not null and parent is distinct from author then
       perform queue_email(parent, 'on_reply', 'reply', ref, who || ' הגיב להודעה שלך ' || room, new.body, link, ch.id, null, new.created_at);
-      perform queue_push(parent, 'on_reply', ref, who || ' הגיב להודעה שלך ' || room, new.body, link);
     end if;
   end if;
   for r in select e.user_id from email_prefs e join profiles p on p.id = e.user_id
@@ -1823,7 +1502,6 @@ begin
     values (r.user_id, 'room', ref, left('הודעה חדשה ' || room || ' מ' || who, 200), left(new.body, 400), link, ch.id, new.created_at)
     on conflict (user_id, ref) do nothing;
   end loop;
-  perform push_kick();
   return null;
 end $$;
 
@@ -1850,10 +1528,7 @@ begin
     perform queue_email(r.user_id, 'on_dm', 'dm', 'dm:' || new.id, title,
                         case when coalesce(pr.dm_preview, true) then new.body else '' end,
                         '#/dm/' || new.conversation_id, null, new.conversation_id, new.created_at);
-    perform queue_push(r.user_id, 'on_dm', 'dm:' || new.id, title,
-                       case when coalesce(pr.dm_preview, true) then new.body else '' end, '#/dm/' || new.conversation_id);
   end loop;
-  perform push_kick();
   return null;
 end $$;
 
@@ -1874,24 +1549,6 @@ end $$;
 drop trigger if exists feedback_email on feedback;
 create trigger feedback_email after update on feedback
   for each row execute function email_on_feedback();
-
--- A new request: every admin is told (email "on_feedback", push like a private message).
-create or replace function email_on_new_feedback() returns trigger
-language plpgsql security definer set search_path = public as $$
-declare
-  r record;
-begin
-  for r in select id from profiles where role = 'admin' and status = 'active' and id <> new.author_id loop
-    perform queue_email(r.id, 'on_feedback', 'feedback', 'fbnew:' || new.id, 'פנייה חדשה לניהול', new.body, '#/admin?tab=feedback');
-    perform queue_push(r.id, 'on_dm', 'fbnew:' || new.id, 'פנייה חדשה לניהול', new.body, '#/admin?tab=feedback');
-  end loop;
-  perform push_kick();
-  return null;
-end $$;
-
-drop trigger if exists feedback_new_email on feedback;
-create trigger feedback_new_email after insert on feedback
-  for each row execute function email_on_new_feedback();
 
 create or replace function email_on_nickname() returns trigger
 language plpgsql security definer set search_path = public as $$
@@ -2081,8 +1738,7 @@ begin
   if pw is null or extensions.crypt(coalesce(p_password, ''), pw) <> pw then
     raise exception 'הסיסמה שגויה' using errcode = '42501';
   end if;
-  truncate message_reports, mute_log, scheduled_messages, room_mutes, push_queue, push_subscriptions, push_prefs,
-    quiz_guesses, quote_quizzes, confession_comments, confession_reactions, confessions, events, email_queue, email_prefs, nickname_votes, nicknames, birthday_posts, birthdays, feedback, poll_votes, poll_options, polls, dm_reactions, dm_messages, dm_participants, dm_conversations, reactions, message_likes, stars,
+  truncate quiz_guesses, quote_quizzes, confession_comments, confession_reactions, confessions, events, email_queue, email_prefs, nickname_votes, nicknames, birthday_posts, birthdays, feedback, poll_votes, poll_options, polls, dm_reactions, dm_messages, dm_participants, dm_conversations, reactions, message_likes, stars,
     anon_authors, wall_posts, channel_reads, messages, channels, preapproved_emails, roster restart identity cascade;
   foreach t in array array['thread_likes', 'thread_reads', 'threads'] loop
     if to_regclass('public.' || t) is not null then execute format('truncate %I cascade', t); end if;
@@ -2156,7 +1812,6 @@ declare
   w wall_posts;
 begin
   if not is_active() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  if is_muted() then raise exception 'הושתקת זמנית ואינך יכול לכתוב כרגע' using errcode = '42501'; end if;
   select * into target from profiles where id = p_profile and status = 'active';
   if not found then raise exception 'המשתמש לא נמצא'; end if;
   if coalesce(p_anonymous, false) then
@@ -2228,7 +1883,6 @@ declare
   m dm_messages;
 begin
   if not is_active() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  if is_muted() then raise exception 'הושתקת זמנית ואינך יכול לכתוב כרגע' using errcode = '42501'; end if;
   select * into me from dm_participants where conversation_id = p_conv and user_id = auth.uid();
   if not found then raise exception 'אין הרשאה' using errcode = '42501'; end if;
   select * into c from dm_conversations where id = p_conv;
@@ -2338,8 +1992,8 @@ revoke execute on function create_poll(text, text[], boolean, bigint), vote_poll
   set_poll_closed(bigint, boolean) from anon, public;
 grant execute on function create_poll(text, text[], boolean, bigint), vote_poll(bigint, bigint[]), poll_results(bigint),
   set_poll_closed(bigint, boolean) to authenticated;
-revoke execute on function send_feedback(text, text), reply_feedback(bigint, text, boolean), open_feedback_count() from anon, public;
-grant execute on function send_feedback(text, text), reply_feedback(bigint, text, boolean), open_feedback_count() to authenticated;
+revoke execute on function send_feedback(text, text), reply_feedback(bigint, text, boolean) from anon, public;
+grant execute on function send_feedback(text, text), reply_feedback(bigint, text, boolean) to authenticated;
 revoke execute on function post_birthdays(), profile_birthday(uuid), propose_nickname(uuid, text),
   toggle_nickname_vote(bigint), remove_nickname(bigint), nickname_list(uuid) from anon, public;
 grant execute on function post_birthdays(), profile_birthday(uuid), propose_nickname(uuid, text),
@@ -2361,18 +2015,6 @@ revoke execute on function post_confession(text), delete_confession(bigint), gra
   quiz_list(), quiz_leaderboard(), delete_quiz(bigint) from anon, public;
 grant execute on function post_confession(text), delete_confession(bigint), grab_quote(bigint), guess_quote(bigint, uuid),
   quiz_list(), quiz_leaderboard(), delete_quiz(bigint) to authenticated;
-revoke execute on function report_message(bigint, text), handle_report(bigint, boolean), report_list(),
-  mute_member(uuid, int, text), unmute_member(uuid), my_mute(), day_titles(uuid), admin_stats(),
-  schedule_message(bigint, text, timestamptz), send_due_scheduled(), push_public_key() from anon, public;
-grant execute on function report_message(bigint, text), handle_report(bigint, boolean), report_list(),
-  mute_member(uuid, int, text), unmute_member(uuid), my_mute(), day_titles(uuid), admin_stats(),
-  schedule_message(bigint, text, timestamptz), send_due_scheduled(), push_public_key() to authenticated;
-revoke execute on function queue_push(uuid, text, text, text, text, text), push_kick(), push_batch() from anon, public, authenticated;
-do $$ begin
-  if exists (select 1 from pg_roles where rolname = 'service_role') then
-    grant execute on function push_batch(), send_due_scheduled() to service_role;
-  end if;
-end $$;
 revoke execute on function add_preapproved(jsonb) from anon, public;
 grant execute on function add_preapproved(jsonb) to authenticated;
 revoke execute on function owner_profile_id() from anon, public;
@@ -2407,14 +2049,6 @@ alter table nickname_votes   enable row level security;  -- no policies: functio
 alter table email_prefs      enable row level security;
 alter table email_queue      enable row level security;  -- no policies: triggers and the email job only
 alter table events           enable row level security;
-alter table message_reports  enable row level security;
-alter table mute_log         enable row level security;
-alter table scheduled_messages enable row level security;
-alter table room_mutes       enable row level security;
-alter table push_subscriptions enable row level security;
-alter table push_prefs       enable row level security;
-alter table push_queue       enable row level security;  -- no policies: triggers and the push job only
-alter table push_config      enable row level security;  -- no policies: the push job only
 alter table confessions      enable row level security;
 alter table confession_reactions enable row level security;
 alter table confession_comments  enable row level security;
@@ -2529,24 +2163,9 @@ create policy confession_reactions_delete on confession_reactions for delete usi
 drop policy if exists confession_comments_select on confession_comments;
 create policy confession_comments_select on confession_comments for select using (is_active());
 drop policy if exists confession_comments_insert on confession_comments;
-create policy confession_comments_insert on confession_comments for insert with check (is_active() and not is_muted() and author_id = auth.uid());
+create policy confession_comments_insert on confession_comments for insert with check (is_active() and author_id = auth.uid());
 drop policy if exists confession_comments_delete on confession_comments;
 create policy confession_comments_delete on confession_comments for delete using (author_id = auth.uid() or can_remove_content());
-
--- moderation: moderators read the mute log; reports only through report_list()
-drop policy if exists mute_log_select on mute_log;
-create policy mute_log_select on mute_log for select using (can_remove_content());
--- my scheduled messages, muted rooms, devices and push settings
-drop policy if exists scheduled_own_select on scheduled_messages;
-create policy scheduled_own_select on scheduled_messages for select using (user_id = auth.uid());
-drop policy if exists scheduled_own_delete on scheduled_messages;
-create policy scheduled_own_delete on scheduled_messages for delete using (user_id = auth.uid() and sent_at is null);
-drop policy if exists room_mutes_own on room_mutes;
-create policy room_mutes_own on room_mutes for all using (user_id = auth.uid()) with check (user_id = auth.uid());
-drop policy if exists push_subs_own on push_subscriptions;
-create policy push_subs_own on push_subscriptions for all using (user_id = auth.uid()) with check (user_id = auth.uid() and is_active());
-drop policy if exists push_prefs_own on push_prefs;
-create policy push_prefs_own on push_prefs for all using (user_id = auth.uid()) with check (user_id = auth.uid());
 
 -- events: members read the calendar; all writes go through the functions above
 drop policy if exists events_select on events;

@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { useApp } from '../AppContext';
 import { supabase } from '../supabase';
 import { errorText, fullDate, timeAgo } from '../lib/format';
 import { useFeedback } from '../components/Feedback';
@@ -20,16 +21,19 @@ export interface FeedbackRow {
 
 /** Members write to the management (bugs, suggestions, anything else) and see the answers. */
 export default function ContactPage() {
+  const { me } = useApp();
   const { toast } = useFeedback();
   const [kind, setKind] = useState<FeedbackKind>('idea');
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
   const [mine, setMine] = useState<FeedbackRow[] | null>(null);
 
+  // Only my own requests: admins may read everyone's, but those belong in the admin tab.
   const load = () =>
     supabase
       .from('feedback')
       .select('*')
+      .eq('author_id', me?.id ?? '')
       .order('id', { ascending: false })
       .then(({ data }) => setMine((data as FeedbackRow[]) ?? []));
 

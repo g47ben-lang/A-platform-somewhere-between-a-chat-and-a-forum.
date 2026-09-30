@@ -396,6 +396,7 @@ select pg_temp.check((select count(*) = 0 from feedback), 'others cannot read a 
 reset role;
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
 select pg_temp.check((select count(*) = 1 from feedback), 'admins read all requests');
+select pg_temp.check((select open_feedback_count() = 1), 'admins see how many requests wait');
 select reply_feedback(:fb_id, 'תוקן, תודה', true);
 reset role;
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
@@ -586,6 +587,63 @@ select delete_confession(:conf_id);
 select pg_temp.check((select count(*) = 0 from confessions), 'author deletes his confession');
 reset role;
 
+-- ===== Reports, muting, tags, stats, scheduling, room mutes, push =====
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select report_message((select id from messages where author_id = '00000000-0000-0000-0000-00000000000b' and not deleted order by id limit 1), 'לא מתאים');
+select pg_temp.check((select count(*) = 0 from report_list()), 'members do not see reports');
+select pg_temp.denied($$select handle_report(1, true)$$, 'members do not handle reports');
+select pg_temp.denied($$select mute_member('00000000-0000-0000-0000-00000000000b', 60, 'x')$$, 'members cannot mute');
+update profiles set muted_until = 'infinity' where id = auth.uid();
+select pg_temp.check((select muted_until is null from profiles where id = auth.uid()), 'muting only through the function');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+select pg_temp.check((select reports = 1 and reasons = array['לא מתאים'] from report_list()), 'admins see reports without reporters');
+select handle_report((select message_id from report_list() limit 1), false);
+select pg_temp.check((select count(*) = 0 from report_list()), 'report handled');
+select mute_member('00000000-0000-0000-0000-00000000000d', 60, 'חוצפה');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select pg_temp.check((select reason = 'חוצפה' and until > now() from my_mute()), 'muted member sees why and until when');
+select pg_temp.check((select count(*) = 0 from mute_log), 'muted member cannot see who muted him');
+select pg_temp.denied($$select send_message((select id from channels where is_main), 'x')$$, 'muted member cannot write in rooms');
+select pg_temp.denied($$select send_dm(start_dm('00000000-0000-0000-0000-00000000000b', false), 'x')$$, 'muted member cannot send DMs');
+select pg_temp.denied($$select create_poll('x', array['a','b'])$$, 'muted member cannot open polls');
+select pg_temp.check((select send_feedback('other', 'למה הושתקתי?') > 0), 'muted member can still contact the management');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000f2');
+select pg_temp.denied($$select mute_member('00000000-0000-0000-0000-00000000000a', 60, null)$$, 'nobody mutes an admin');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+select unmute_member('00000000-0000-0000-0000-00000000000d');
+reset role;
+select pg_temp.check((select muted_until is null from profiles where id = '00000000-0000-0000-0000-00000000000d'), 'unmuted');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select pg_temp.check((select first_count + last_count >= 0 from day_titles('00000000-0000-0000-0000-00000000000b')), 'day titles computed');
+select pg_temp.denied($$select admin_stats()$$, 'stats are for admins');
+select pg_temp.denied($$select schedule_message((select id from channels where is_main), 'x', now())$$, 'schedule at least a minute ahead');
+select schedule_message((select id from channels where is_main), 'הודעה מתוזמנת', now() + interval '2 minutes') as sched_id \gset
+insert into room_mutes (user_id, channel_id) values (auth.uid(), (select id from channels where is_main));
+select pg_temp.check((select count(*) = 1 from room_mutes), 'member mutes a room for himself');
+select pg_temp.check((select push_public_key() is null), 'no push key before the push job ran');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+select pg_temp.check((select (admin_stats() ->> 'members')::int > 0), 'admin statistics');
+select pg_temp.check((select count(*) = 0 from scheduled_messages), 'scheduled messages are private');
+reset role;
+update scheduled_messages set send_at = now() - interval '1 second' where id = :sched_id;
+select pg_temp.check((select send_due_scheduled() = 1), 'due scheduled message sent');
+select pg_temp.check((select author_id = '00000000-0000-0000-0000-00000000000d' from messages where body = 'הודעה מתוזמנת'), 'sent as its author');
+insert into push_subscriptions (endpoint, user_id, p256dh, auth) values ('https://push.example/1', '00000000-0000-0000-0000-00000000000b', 'k', 'a');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select send_dm(start_dm('00000000-0000-0000-0000-00000000000b', false), 'פוש לבוב');
+reset role;
+select pg_temp.check((select count(*) = 1 from push_queue where user_id = '00000000-0000-0000-0000-00000000000b' and body = 'פוש לבוב'), 'push queued for a subscribed device');
+select pg_temp.check((select count(*) = 0 from push_queue where user_id = '00000000-0000-0000-0000-00000000000d'), 'no push without a device');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+select pg_temp.check((select count(*) = 0 from push_queue), 'push queue is private');
+select pg_temp.denied($$select * from push_batch()$$, 'only the push job takes pushes');
+reset role;
+
 -- ===== Owner (super admin) and inspector =====
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
 select send_dm(start_dm('00000000-0000-0000-0000-0000000000f2', false), 'סוד בין שניים');
@@ -644,7 +702,7 @@ reset role;
 select pg_temp.check((select count(*) = 0 from auth.users) and (select count(*) = 0 from profiles), 'reset removes every account');
 select pg_temp.check((select count(*) = 0 from messages) and (select count(*) = 0 from dm_conversations)
   and (select count(*) = 0 from roster) and (select count(*) = 0 from anon_authors) and (select count(*) = 0 from polls) and (select count(*) = 0 from feedback) and (select count(*) = 0 from nicknames) and (select count(*) = 0 from email_queue), 'reset removes all content');
-select pg_temp.check((select count(*) = 2 and count(*) filter (where is_main) = 1 and count(*) filter (where purpose = 'blessings') = 1 from channels) and (select count(*) = 0 from events) and (select count(*) = 0 from quote_quizzes), 'reset leaves an empty main room and the blessings room');
+select pg_temp.check((select count(*) = 2 and count(*) filter (where is_main) = 1 and count(*) filter (where purpose = 'blessings') = 1 from channels) and (select count(*) = 0 from events) and (select count(*) = 0 from quote_quizzes) and (select count(*) = 0 from push_subscriptions), 'reset leaves an empty main room and the blessings room');
 insert into auth.users (id, email) values ('00000000-0000-0000-0000-0000000000e0', 'shmuelshmuel@gmail.com');
 select pg_temp.check((select status = 'active' and role = 'admin' from profiles where id = '00000000-0000-0000-0000-0000000000e0'), 'owner signs up again after reset');
 

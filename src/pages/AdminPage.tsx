@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useApp } from '../AppContext';
 import { supabase } from '../supabase';
 import type { MemberRole, Message, Profile, Room } from '../types';
@@ -23,7 +23,8 @@ export default function AdminPage() {
   const showOwnerTab = isOwner || !ownerId;
   const { confirm, toast } = useFeedback();
   const openCard = useProfileCard();
-  const [tab, setTab] = useState<Tab>('members');
+  const [params] = useSearchParams();
+  const [tab, setTab] = useState<Tab>(() => (params.get('tab') as Tab | null) ?? 'members');
   const [filter, setFilter] = useState('');
   const [editRoom, setEditRoom] = useState<Room | null>(null);
   const [newRoom, setNewRoom] = useState(false);

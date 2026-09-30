@@ -25,6 +25,15 @@ export default function Layout() {
   const [menu, setMenu] = useState(false);
   const [q, setQ] = useState('');
   const location = useLocation();
+  // Admins: requests to the management waiting for an answer.
+  const [openFeedback, setOpenFeedback] = useState(0);
+  useEffect(() => {
+    if (!isAdmin) return;
+    const load = () => supabase.rpc('open_feedback_count').then(({ data }) => setOpenFeedback((data as number) ?? 0));
+    load();
+    const t = setInterval(load, 60000);
+    return () => clearInterval(t);
+  }, [isAdmin, location.pathname]);
   const navigate = useNavigate();
   const convTitle = useConversationTitle();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -153,6 +162,13 @@ export default function Layout() {
               <Icon name="admin_panel_settings" />
               <span className="nav-label">ממתינים לאישור</span>
               <span className="badge-count">{pendingCount}</span>
+            </NavLink>
+          )}
+          {isAdmin && openFeedback > 0 && (
+            <NavLink to="/admin?tab=feedback" className="nav-item">
+              <Icon name="mail" />
+              <span className="nav-label">פניות חדשות</span>
+              <span className="badge-count">{openFeedback}</span>
             </NavLink>
           )}
           {isAdmin && newJoins > 0 && (
