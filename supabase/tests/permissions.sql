@@ -435,6 +435,81 @@ select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
 select pg_temp.denied('select vote_poll(' || :poll_id || ', array[' || :opt1 || ']::bigint[])', 'closed poll takes no answers');
 reset role;
 
+-- ===== Hebrew calendar & birthdays =====
+select pg_temp.check((select hy = 5787 and hm = 7 and hd = 1 from hebrew_date('2026-09-12')), 'Rosh Hashana 5787');
+select pg_temp.check((select hy = 5784 and hm = 13 and hd = 14 from hebrew_date('2024-03-24')), 'Purim 5784 in Adar II');
+select pg_temp.check((select hebrew_label(8, 12) = 'י"ב בחשון' and hebrew_label(12, 15, true) = 'ט"ו באדר א'''), 'Hebrew date labels');
+select min(d)::date as bday from generate_series('1995-01-01'::date, '2010-12-31', '1 day') d, hebrew_date(d::date) h,
+  hebrew_date((now() at time zone 'Asia/Jerusalem')::date) t where h.hm = t.hm and h.hd = t.hd \gset
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+insert into birthdays (user_id, birth_date) values (auth.uid(), :'bday');
+select pg_temp.denied($$insert into birthdays (user_id, birth_date) values ('00000000-0000-0000-0000-00000000000d', '2000-01-01')$$, 'nobody sets another member''s birthday');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select pg_temp.check((select count(*) = 0 from birthdays), 'birth dates are private');
+select pg_temp.check((select profile_birthday('00000000-0000-0000-0000-00000000000b') is not null), 'Hebrew birthday shown on the profile');
+select pg_temp.check((select post_birthdays() = 1), 'birthday greeting posted on the Hebrew birthday');
+select pg_temp.check((select post_birthdays() = 0), 'only once per year');
+select pg_temp.check((select system and author_id is null and body like 'מזל טוב ל-@בוב%' from messages where system order by id desc limit 1), 'greeting is a system message in the main room');
+reset role;
+
+-- ===== Nicknames =====
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+select propose_nickname('00000000-0000-0000-0000-00000000000d', 'המתמיד') as nick_id \gset
+select pg_temp.denied($$select propose_nickname(auth.uid(), 'אני')$$, 'no nickname for yourself');
+select propose_nickname('00000000-0000-0000-0000-00000000000d', 'שני');
+select propose_nickname('00000000-0000-0000-0000-00000000000d', 'שלישי');
+select pg_temp.denied($$select propose_nickname('00000000-0000-0000-0000-00000000000d', 'רביעי')$$, 'at most 3 proposals per member');
+select pg_temp.check((select propose_nickname('00000000-0000-0000-0000-00000000000d', 'המתמיד ') = :nick_id), 'same nickname is not duplicated');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+select toggle_nickname_vote(:nick_id);
+select pg_temp.check((select votes = 2 and i_voted and not mine from nickname_list('00000000-0000-0000-0000-00000000000d') where id = :nick_id), 'votes counted; proposer hidden');
+select pg_temp.check((select count(*) = 0 from nicknames), 'nickname table is not readable directly');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000f2');
+select pg_temp.denied('select remove_nickname(' || :nick_id || ')', 'others cannot remove a nickname');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select remove_nickname((select id from nickname_list('00000000-0000-0000-0000-00000000000d') where nickname = 'שני'));
+select pg_temp.check((select count(*) = 2 from nickname_list(auth.uid())), 'member removes a nickname he dislikes');
+reset role;
+
+-- ===== Email notifications =====
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+insert into email_prefs (user_id, enabled, delay_minutes, no_shabbat) values (auth.uid(), true, 0, false);
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+insert into email_prefs (user_id, enabled, delay_minutes, no_shabbat, only_unread) values (auth.uid(), true, 0, false, false);
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select pg_temp.check((select count(*) = 0 from email_prefs), 'email settings are private');
+select pg_temp.denied($$insert into email_prefs (user_id, enabled) values ('00000000-0000-0000-0000-00000000000b', false)$$, 'nobody changes another member''s email settings');
+select (send_dm(start_dm('00000000-0000-0000-0000-00000000000b', false), 'יש מחר שיעור?')).id as dm_id \gset
+select send_message((select id from channels where is_main), 'שאלה ל@בוב החדש ול@מנהלת');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000c');
+select send_dm(2, 'שאלה בסוד');
+reset role;
+select pg_temp.check((select title = 'הודעה חדשה מדייב' and body = 'יש מחר שיעור?' and link like '#/dm/%' from email_queue where ref = 'dm:' || :dm_id), 'DM queued for the recipient');
+select pg_temp.check((select count(*) = 1 from email_queue where user_id = '00000000-0000-0000-0000-00000000000a' and title = 'הודעה אנונימית חדשה'), 'anonymous sender is never named in emails');
+select pg_temp.check((select count(*) = 1 from email_queue where user_id = '00000000-0000-0000-0000-00000000000b' and kind = 'mention'), 'mention queued');
+select pg_temp.check((select count(*) = 0 from email_queue where user_id = '00000000-0000-0000-0000-00000000000d'), 'no emails without opting in');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+select pg_temp.check((select count(*) = 0 from email_queue), 'members cannot read the email queue');
+select pg_temp.denied($$select * from email_batch()$$, 'only the email job takes emails');
+reset role;
+select pg_temp.check((select count(*) = 2 from email_batch() where email in ('bob@x.com', 'admin@x.com')), 'due emails returned per member');
+select email_done(array(select id from email_queue where claimed_at is not null), true);
+select pg_temp.check((select count(*) = 0 from email_batch()), 'nothing twice');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select send_dm((select conversation_id from dm_messages where id = :dm_id), 'עוד שאלה');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+select mark_dm_read((select conversation_id from dm_messages where id = :dm_id));
+reset role;
+select pg_temp.check((select count(*) = 0 from email_batch() where email = 'bob@x.com'), 'what was already read is not emailed');
+
 -- ===== Owner (super admin) and inspector =====
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
 select send_dm(start_dm('00000000-0000-0000-0000-0000000000f2', false), 'סוד בין שניים');
@@ -447,6 +522,7 @@ select pg_temp.denied($$select reset_everything('wrong')$$, 'reset needs the cal
 reset role;
 insert into auth.users (id, email, raw_user_meta_data) values ('00000000-0000-0000-0000-0000000000e0', 'ShmuelShmuel@gmail.com', '{"display_name":"משהו"}');
 select pg_temp.check((select status = 'active' and role = 'admin' and display_name = 'ss' from profiles where id = '00000000-0000-0000-0000-0000000000e0'), 'owner email signs up as active admin "ss"');
+select pg_temp.check((select email_confirmed_at is not null from auth.users where id = '00000000-0000-0000-0000-0000000000e0'), 'owner email never needs confirmation');
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
 update profiles set role = 'member', status = 'banned' where id = '00000000-0000-0000-0000-0000000000e0';
 select pg_temp.check((select status = 'active' and role = 'admin' from profiles where id = '00000000-0000-0000-0000-0000000000e0'), 'no one demotes or bans the owner');
@@ -491,7 +567,7 @@ select reset_everything('owner-pass');
 reset role;
 select pg_temp.check((select count(*) = 0 from auth.users) and (select count(*) = 0 from profiles), 'reset removes every account');
 select pg_temp.check((select count(*) = 0 from messages) and (select count(*) = 0 from dm_conversations)
-  and (select count(*) = 0 from roster) and (select count(*) = 0 from anon_authors) and (select count(*) = 0 from polls) and (select count(*) = 0 from feedback), 'reset removes all content');
+  and (select count(*) = 0 from roster) and (select count(*) = 0 from anon_authors) and (select count(*) = 0 from polls) and (select count(*) = 0 from feedback) and (select count(*) = 0 from nicknames) and (select count(*) = 0 from email_queue), 'reset removes all content');
 select pg_temp.check((select count(*) = 1 and bool_and(is_main) from channels), 'reset leaves an empty main room');
 insert into auth.users (id, email) values ('00000000-0000-0000-0000-0000000000e0', 'shmuelshmuel@gmail.com');
 select pg_temp.check((select status = 'active' and role = 'admin' from profiles where id = '00000000-0000-0000-0000-0000000000e0'), 'owner signs up again after reset');

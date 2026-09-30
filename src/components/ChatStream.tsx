@@ -33,6 +33,8 @@ export interface StreamItem {
   starred?: boolean;
   quote?: { name: string; text: string; media?: boolean } | null;
   reactions: ReactionSummary[];
+  /** Automatic message (birthday greeting), shown centered without an author. */
+  system?: boolean;
   /** Announcement of a poll: shows a button to its page. */
   pollId?: number | null;
   /** Owner only: the real author of an anonymous message. */
@@ -251,6 +253,18 @@ function Bubble({
     const r = el.getBoundingClientRect();
     return { x: r.left + r.width / 2, y: r.top };
   };
+
+  if (m.system) {
+    return (
+      <div data-mid={m.id} className={`b-row system ${props.highlightId === m.id ? 'flash' : ''}`}>
+        <div className="b-system">
+          <Icon name="cake" size={20} />
+          <span><RichText text={m.body} names={names} myName={me?.display_name} /></span>
+          <time title={fullDate(m.createdAt)}>{clockTime(m.createdAt)}</time>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

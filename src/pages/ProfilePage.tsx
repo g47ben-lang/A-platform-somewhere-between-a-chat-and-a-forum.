@@ -12,6 +12,7 @@ import { useFeedback } from '../components/Feedback';
 import Icon from '../components/Icon';
 import MessageRow from '../components/MessageRow';
 import { startConversation } from '../components/NewChatDialog';
+import Nicknames, { useNicknames } from '../components/Nicknames';
 
 export default function ProfilePage() {
   const userId = useParams().userId!;
@@ -21,6 +22,13 @@ export default function ProfilePage() {
   const profile = profiles.get(userId);
   const isMe = me?.id === userId;
   const coverUrl = useSignedUrl(profile?.cover_path);
+  const nicks = useNicknames(userId);
+  const topNick = nicks.list?.[0];
+  const [hebBirthday, setHebBirthday] = useState<string | null>(null);
+  useEffect(() => {
+    setHebBirthday(null);
+    supabase.rpc('profile_birthday', { p_user: userId }).then(({ data }) => setHebBirthday((data as string | null) ?? null));
+  }, [userId]);
   const [coverBusy, setCoverBusy] = useState(false);
 
   async function setCover(file: File | null) {
@@ -128,11 +136,18 @@ export default function ProfilePage() {
           <Avatar id={profile.id} name={profile.display_name} size={96} online={online.has(profile.id)} />
           <div className="profile-main">
             <h1>{profile.display_name}</h1>
+            {topNick && <div className="profile-nick">המכונה <strong>"{topNick.nickname}"</strong></div>}
             <div className="profile-meta">
               {roleTag(profile, ownerId) && <span className="role-tag">{roleTag(profile, ownerId)}</span>}
               <span>{online.has(profile.id) ? 'מחובר עכשיו' : 'לא מחובר'}</span>
               <span>·</span>
               <span>חבר מאז {fullDate(profile.created_at)}</span>
+              {hebBirthday && (
+                <>
+                  <span>·</span>
+                  <span className="profile-bday"><Icon name="cake" size={14} /> {hebBirthday}</span>
+                </>
+              )}
             </div>
             {profile.bio && <p className="profile-bio">{profile.bio}</p>}
             <div className="profile-actions">
@@ -149,6 +164,8 @@ export default function ProfilePage() {
             </div>
           </div>
         </section>
+
+        <Nicknames userId={userId} list={nicks.list} reload={nicks.load} />
 
         <section className="rep-card">
           <div className="rep-head">

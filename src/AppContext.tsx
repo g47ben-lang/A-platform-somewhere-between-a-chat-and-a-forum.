@@ -117,6 +117,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     reloadProfiles();
     reloadRooms();
     reloadConversations();
+    // Today's Hebrew birthday greetings (idempotent; the email job posts them too).
+    supabase.rpc('post_birthdays').then(() => undefined);
     let roomTimer: ReturnType<typeof setTimeout> | undefined;
     const roomsSoon = () => {
       clearTimeout(roomTimer);

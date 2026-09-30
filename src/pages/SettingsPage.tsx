@@ -8,6 +8,8 @@ import Avatar from '../components/Avatar';
 import { useFeedback } from '../components/Feedback';
 import Icon from '../components/Icon';
 import PasswordFields, { passwordProblem } from '../components/PasswordFields';
+import EmailSettings from '../components/EmailSettings';
+import BirthdaySettings from '../components/BirthdaySettings';
 
 export default function SettingsPage() {
   const { me, session, reloadMe } = useApp();
@@ -129,6 +131,10 @@ export default function SettingsPage() {
             <p className="muted">הדפדפן הזה לא תומך בהתראות.</p>
           )}
         </section>
+
+        <EmailSettings />
+
+        <BirthdaySettings />
 
         <section className="settings-card">
           <h2>הודעות אנונימיות</h2>

@@ -188,6 +188,7 @@ export default function RoomPage() {
         anonymous: m.anonymous,
         mine: m.author_id === me?.id || mineAnon.has(m.id),
         pollId: m.poll_id,
+        system: m.system,
         revealedAuthor: isOwner && m.anonymous && anonAuthor.has(m.id) ? nameOf(anonAuthor.get(m.id)) : null,
         createdAt: m.created_at,
         editedAt: m.edited_at,

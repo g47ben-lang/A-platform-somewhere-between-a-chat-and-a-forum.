@@ -60,6 +60,8 @@ export interface Message {
   pinned_by: string | null;
   /** Set on the automatic announcement of a poll. */
   poll_id: number | null;
+  /** Automatic message (birthday greetings): no author. */
+  system: boolean;
 }
 
 export interface Poll {

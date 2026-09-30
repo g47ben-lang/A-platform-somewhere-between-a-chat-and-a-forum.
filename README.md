@@ -122,3 +122,28 @@ PGHOST=localhost PGUSER=postgres supabase/tests/run.sh
 - תיוג חברים עם @
 - העלאת תמונות וקבצים (Supabase Storage)
 - דומיין משלכם במקום github.io
+
+## התראות במייל, אימות מייל ושחזור סיסמה (Gmail)
+
+השירות המובנה של Supabase שולח מיילים רק לצוות הפרויקט, ולכן מחברים Gmail. אפשר לשלוח עד כ-500 מיילים ביום. **את סיסמת האפליקציה מכניסים רק ב-Supabase, ואף פעם לא בקוד או בצ'אט.**
+
+1. **סיסמת אפליקציה ב-Gmail:** בחשבון Google שממנו ישלחו המיילים מפעילים "אימות דו-שלבי". אחר כך נכנסים ל-https://myaccount.google.com/apppasswords ויוצרים סיסמה בשם "chat". מקבלים 16 תווים.
+2. **מיילי ההרשמה והשחזור:** ב-Supabase ← Authentication ← Emails ← **SMTP Settings** מדליקים את Enable Custom SMTP וממלאים:
+   - Host: `smtp.gmail.com`
+   - Port: `465`
+   - Username: כתובת ה-Gmail
+   - Password: סיסמת האפליקציה
+   - Sender email: אותה כתובת
+   - Sender name: `מערכת ועד קמ"ד ישיבת חברון`
+
+   אחרי השמירה, "שכחת סיסמה" עובד.
+3. **הגבלת קצב:** ב-Authentication ← Rate Limits מעלים את "emails per hour" ל-100.
+4. **כתובת האתר:** ב-Authentication ← URL Configuration, ב-Site URL, שמים את כתובת האתר ב-GitHub Pages כדי שקישורי השחזור יחזרו לאתר.
+5. **אימות מייל בהרשמה (לא חובה):** ב-Authentication ← Sign In / Providers ← Email מדליקים את **Confirm email**. החשבון `shmuelshmuel@gmail.com` מאומת אוטומטית ולא צריך אימות.
+6. **הפונקציה שמכינה ושולחת את המיילים:**
+   - ב-Edge Functions ← Deploy a new function ← Via Editor, נותנים שם `send-emails`, מדביקים את כל התוכן של `supabase/functions/send-emails/index.ts` ולוחצים Deploy.
+   - בהגדרות הפונקציה **מכבים את Verify JWT** (Enforce JWT Verification).
+7. **סודות:** ב-Edge Functions ← Secrets מוסיפים `GMAIL_USER`, שהוא כתובת ה-Gmail, ו-`GMAIL_APP_PASSWORD`, שהוא סיסמת האפליקציה.
+8. **הפעלה כל 5 דקות:** מריצים ב-SQL Editor את `supabase/email-setup.sql`. אותה הרצה מפרסמת גם את ברכות יום ההולדת כל בוקר.
+
+**בדיקה:** פותחים בדפדפן את `https://aircrgkljjnomoemnetq.supabase.co/functions/v1/send-emails`, ואמורה להופיע תשובה קצרה עם `sent`. כל חבר בוחר בהגדרות ← "התראות במייל" על מה לקבל מייל ומתי.

@@ -13,7 +13,7 @@ set client_min_messages = warning;
 do $$ begin create role anon nologin; exception when duplicate_object then null; end $$;
 do $$ begin create role authenticated nologin; exception when duplicate_object then null; end $$;
 create schema auth;
-create table auth.users (id uuid primary key default gen_random_uuid(), email text, raw_user_meta_data jsonb default '{}', encrypted_password text);
+create table auth.users (id uuid primary key default gen_random_uuid(), email text, raw_user_meta_data jsonb default '{}', encrypted_password text, email_confirmed_at timestamptz);
 create function auth.uid() returns uuid language sql stable as $f$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $f$;
 grant usage on schema auth to authenticated;
 create publication supabase_realtime;
@@ -95,5 +95,13 @@ psql -q -v ON_ERROR_STOP=1 -d $DB -f tests/upgrade_v9.sql >/dev/null
 apply schema.sql
 apply schema.sql
 psql -q -v ON_ERROR_STOP=1 -d $DB -f tests/upgrade_check_v9.sql
+
+echo "== upgrade from v10 =="
+fresh_db
+apply tests/fixtures/schema_v10.sql
+psql -q -v ON_ERROR_STOP=1 -d $DB -f tests/upgrade_v10.sql >/dev/null
+apply schema.sql
+apply schema.sql
+psql -q -v ON_ERROR_STOP=1 -d $DB -f tests/upgrade_check_v10.sql
 
 psql -q -d postgres -c "drop database $DB"
