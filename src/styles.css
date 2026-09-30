@@ -985,3 +985,6 @@ button.author:hover, .title-link:hover { text-decoration: underline; }
 .terms-box ul { margin: 6px 0 0; padding-inline-start: 20px; }
 .parsed-list { list-style: none; margin: 0; padding: 8px 12px; max-height: 200px; overflow-y: auto; border: 1px solid var(--divider); border-radius: 8px; font-size: 13px; }
 .parsed-list li { padding: 2px 0; }
+
+.roster-details summary { cursor: pointer; color: var(--primary); font-weight: 500; padding: 8px 0; }
+.roster-details .list { margin-top: 4px; }

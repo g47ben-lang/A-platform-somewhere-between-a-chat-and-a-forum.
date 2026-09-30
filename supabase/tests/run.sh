@@ -64,4 +64,12 @@ apply schema.sql
 apply schema.sql
 psql -q -v ON_ERROR_STOP=1 -d $DB -f tests/upgrade_check_v5.sql
 
+echo "== upgrade from v6 =="
+fresh_db
+apply tests/fixtures/schema_v6.sql
+psql -q -v ON_ERROR_STOP=1 -d $DB -f tests/upgrade_v6.sql >/dev/null
+apply schema.sql
+apply schema.sql
+psql -q -v ON_ERROR_STOP=1 -d $DB -f tests/upgrade_check_v6.sql
+
 psql -q -d postgres -c "drop database $DB"

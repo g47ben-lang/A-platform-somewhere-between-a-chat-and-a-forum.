@@ -75,8 +75,9 @@ export default function AuthPage() {
 
         {mode === 'signup' && (
           <label className="field">
-            <span>שם מלא / שם תצוגה</span>
+            <span>שם מלא (פרטי ומשפחה)</span>
             <input value={name} onChange={(e) => setName(e.target.value)} maxLength={40} autoComplete="name" required />
+            <span className="field-hint">כמו ברשימת הישיבה. בחור ישיבה שכותב את שמו המלא נכנס מיד.</span>
           </label>
         )}
         <label className="field">

@@ -115,9 +115,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
     const unsub = subscribe('app', (ch) =>
       ch
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, (p) => {
           reloadProfiles();
           reloadMe();
+          // Tell admins about members let in by their name on the roster.
+          const n = p.new as Partial<Profile>;
+          if (meRef.current?.role === 'admin' && n.id && n.joined_via === 'roster' && n.join_seen === false && n.status === 'active') {
+            notify(`${n.display_name} הצטרף לפי רשימת השמות`, 'נכנס אוטומטית. כדאי לוודא שזה באמת הוא.', () => (window.location.hash = '#/admin'));
+          }
         })
         .on('postgres_changes', { event: '*', schema: 'public', table: 'channels' }, roomsSoon)
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (p) => {

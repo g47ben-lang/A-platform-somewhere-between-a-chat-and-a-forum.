@@ -11,9 +11,10 @@ import Icon from '../components/Icon';
 import { useProfileCard } from '../components/ProfileCard';
 import RoomDialog from '../components/RoomDialog';
 import PreapprovedAdmin from '../components/PreapprovedAdmin';
+import RosterAdmin from '../components/RosterAdmin';
 
 type Tab = 'members' | 'preapproved' | 'anonymous' | 'rooms' | 'media';
-type ProfilePatch = Partial<Pick<Profile, 'status' | 'role' | 'accept_anonymous' | 'can_send_anonymous'>>;
+type ProfilePatch = Partial<Pick<Profile, 'status' | 'role' | 'accept_anonymous' | 'can_send_anonymous' | 'join_seen'>>;
 
 export default function AdminPage() {
   const { profiles, rooms, me, reloadProfiles, reloadRooms, nameOf } = useApp();
@@ -29,6 +30,21 @@ export default function AdminPage() {
   const matches = (p: Profile) => p.display_name.includes(filter.trim());
   const members = all.filter((p) => p.status !== 'pending' && matches(p));
   const active = all.filter((p) => p.status === 'active');
+  const newJoins = all
+    .filter((p) => p.joined_via === 'roster' && !p.join_seen && p.status === 'active')
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const newJoinKey = newJoins.map((p) => p.id).join(',');
+  const [matchedName, setMatchedName] = useState<Record<string, string>>({});
+
+  // Which roster name each new member matched, so the admin can compare.
+  useEffect(() => {
+    if (!newJoinKey) return;
+    supabase
+      .from('roster')
+      .select('name, claimed_by')
+      .in('claimed_by', newJoinKey.split(','))
+      .then(({ data }) => setMatchedName(Object.fromEntries((data ?? []).map((r) => [r.claimed_by as string, r.name as string]))));
+  }, [newJoinKey]);
 
   async function update(ids: string[], patch: ProfilePatch) {
     const { error } = await supabase.from('profiles').update(patch).in('id', ids);
@@ -82,7 +98,7 @@ export default function AdminPage() {
         <div className="tabs" role="tablist">
           <button className={tab === 'members' ? 'on' : ''} onClick={() => setTab('members')} role="tab">
             <Icon name="group" size={20} /> חברים
-            {pending.length > 0 && <span className="badge-count">{pending.length}</span>}
+            {pending.length + newJoins.length > 0 && <span className="badge-count">{pending.length + newJoins.length}</span>}
           </button>
           <button className={tab === 'anonymous' ? 'on' : ''} onClick={() => setTab('anonymous')} role="tab">
             <Icon name="visibility_off" size={20} /> הודעות אנונימיות
@@ -109,6 +125,38 @@ export default function AdminPage() {
 
         {tab === 'members' && (
           <>
+            {newJoins.length > 0 && (
+              <section className="card-section">
+                <div className="section-head">
+                  <h2>הצטרפו אוטומטית לפי רשימת השמות ({newJoins.length})</h2>
+                  {newJoins.length > 1 && (
+                    <button className="btn tonal small" onClick={() => update(newJoins.map((p) => p.id), { join_seen: true })}>
+                      כולם תקינים
+                    </button>
+                  )}
+                </div>
+                <p className="muted small">נכנסו בלי המתנה כי השם שכתבו מופיע ברשימה. אם מישהו לא נראה מוכר, אפשר לחסום אותו.</p>
+                <ul className="list">
+                  {newJoins.map((p) => (
+                    <li key={p.id} className="list-row static">
+                      <button className="avatar-link" onClick={(e) => openCard(p.id, e.currentTarget)}>
+                        <Avatar id={p.id} name={p.display_name} size={40} />
+                      </button>
+                      <div className="list-main">
+                        <div className="list-title">{p.display_name}</div>
+                        <div className="list-sub">
+                          {matchedName[p.id] ? `ברשימה: ${matchedName[p.id]} · ` : ''}הצטרף {timeAgo(p.created_at)}
+                        </div>
+                      </div>
+                      <div className="row gap">
+                        <button className="btn text danger" onClick={() => ban(p)}>חסימה</button>
+                        <button className="btn filled small" onClick={() => updateOne(p, { join_seen: true })}>תקין</button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
             <section className="card-section">
               <div className="section-head">
                 <h2>ממתינים לאישור ({pending.length})</h2>
@@ -145,7 +193,10 @@ export default function AdminPage() {
                     </button>
                     <div className="list-main">
                       <div className="list-title">{p.display_name}</div>
-                      <div className="list-sub">{STATUS_LABEL[p.status]}</div>
+                      <div className="list-sub">
+                        {STATUS_LABEL[p.status]}
+                        {p.joined_via === 'roster' ? ' · נכנס לפי רשימת השמות' : p.joined_via === 'email' ? ' · אושר מראש לפי מייל' : ''}
+                      </div>
                     </div>
                     <div className="row gap">
                       <select value={p.role} onChange={(e) => updateOne(p, { role: e.target.value as MemberRole })} aria-label="תפקיד">
@@ -221,7 +272,12 @@ export default function AdminPage() {
         )}
 
         {tab === 'media' && <MediaAdmin />}
-        {tab === 'preapproved' && <PreapprovedAdmin />}
+        {tab === 'preapproved' && (
+          <>
+            <RosterAdmin />
+            <PreapprovedAdmin />
+          </>
+        )}
 
         {tab === 'rooms' && (
           <section className="card-section">

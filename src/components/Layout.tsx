@@ -27,6 +27,7 @@ export default function Layout() {
   const menuRef = useRef<HTMLDivElement>(null);
 
   const pendingCount = isAdmin ? [...profiles.values()].filter((p) => p.status === 'pending').length : 0;
+  const newJoins = isAdmin ? [...profiles.values()].filter((p) => p.joined_via === 'roster' && !p.join_seen && p.status === 'active').length : 0;
   const topicRooms = rooms.filter((r) => !r.is_main);
   const unreadTotal = conversations.reduce((n, c) => n + c.unread, 0) + rooms.reduce((n, r) => n + r.unread, 0);
 
@@ -116,6 +117,13 @@ export default function Layout() {
               <Icon name="admin_panel_settings" />
               <span className="nav-label">ממתינים לאישור</span>
               <span className="badge-count">{pendingCount}</span>
+            </NavLink>
+          )}
+          {isAdmin && newJoins > 0 && (
+            <NavLink to="/admin" className="nav-item">
+              <Icon name="person_add" />
+              <span className="nav-label">הצטרפו לפי שם</span>
+              <span className="badge-count">{newJoins}</span>
             </NavLink>
           )}
         </nav>

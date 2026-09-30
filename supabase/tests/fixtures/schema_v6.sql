@@ -46,10 +46,6 @@ alter table profiles drop constraint if exists profiles_avatar_path;
 alter table profiles add constraint profiles_avatar_path
   check (avatar_path is null or avatar_path ~ '^a/[0-9a-f-]{36}\.(jpg|jpeg|png|webp)$');
 alter table profiles add column if not exists terms_accepted_at timestamptz;  -- NetFree content rules
--- How the account got in without waiting: 'email' (pre-approved email) or 'roster' (name on the yeshiva list).
--- Roster joins start with join_seen = false so the admin gets a heads-up.
-alter table profiles add column if not exists joined_via text check (joined_via in ('email', 'roster'));
-alter table profiles add column if not exists join_seen boolean not null default true;
 alter table profiles drop constraint if exists profiles_bio_len;
 alter table profiles add constraint profiles_bio_len check (char_length(bio) <= 500);
 
@@ -61,21 +57,6 @@ create table if not exists preapproved_emails (
   added_at      timestamptz not null default now(),
   used_at       timestamptz
 );
-
--- The yeshiva's list of students, written surname first ("כהן יוסף", "בן-דוד נחום"). Signing up with a name
--- on it (any word order, hyphen or space, with or without ו/י) lets the account in at once, once per name on
--- the list, and the admin is told.
-create table if not exists roster (
-  id          bigint generated always as identity primary key,
-  name        text not null check (char_length(name) between 2 and 60),
-  tokens      text[] not null,
-  claimed_by  uuid references profiles on delete set null,
-  claimed_at  timestamptz,
-  added_by    uuid references profiles on delete set null,
-  added_at    timestamptz not null default now()
-);
-alter table roster add column if not exists surname text[] not null default '{}';  -- tokens of the first word
-create index if not exists roster_tokens_idx on roster using gin (tokens);
 
 -- ---------- Rooms ----------
 create table if not exists channels (
@@ -353,70 +334,24 @@ $$;
 -- ---------- Triggers ----------
 
 -- New auth user -> profile. First user ever becomes active admin.
--- Normalized words of a Hebrew name, for matching against the roster: order-free, hyphen = space,
--- punctuation/niqqud dropped, final letters folded, and ו/י dropped after a word's first letter
--- (so אהרון = אהרן, וייס = ויס).
-create or replace function name_tokens(p text) returns text[]
-language sql immutable set search_path = public as $$
-  select coalesce(array_agg(distinct t order by t), '{}')
-  from (
-    select case when length(w) > 1 then left(w, 1) || regexp_replace(substr(w, 2), '[וי]', '', 'g') else w end as t
-    from regexp_split_to_table(
-      translate(
-        regexp_replace(regexp_replace(lower(coalesce(p, '')), '[-_־–—]', ' ', 'g'), '[^a-z0-9א-ת ]', '', 'g'),
-        'ךםןףץ', 'כמנפצ'),
-      '\s+') as w
-    where w <> ''
-  ) x
-$$;
-
--- An unclaimed roster row for this name: every word typed must be in the roster name (so a missing second
--- first name is fine) and the surname must be among them, at least two words, the closest match first.
--- Locks the row.
-create or replace function roster_match(p_name text) returns bigint
-language plpgsql security definer set search_path = public as $$
-declare
-  tk text[] := name_tokens(p_name);
-  rid bigint;
-begin
-  if cardinality(tk) < 2 then return null; end if;
-  select id into rid from roster
-   where claimed_by is null and tokens @> tk and tk @> surname and surname <> '{}'
-   order by cardinality(tokens), id
-   limit 1
-   for update skip locked;
-  return rid;
-end $$;
-
 create or replace function handle_new_user() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare
   first_user boolean;
   pre preapproved_emails;
-  nm text;
-  rid bigint;
 begin
   select not exists (select 1 from profiles) into first_user;
   select * into pre from preapproved_emails where email = lower(new.email);
-  nm := left(coalesce(nullif(trim(new.raw_user_meta_data ->> 'display_name'), ''), pre.display_name, split_part(new.email, '@', 1)), 40);
-  if not first_user and pre.email is null then
-    rid := roster_match(nm);
-  end if;
-  insert into profiles (id, display_name, status, role, terms_accepted_at, joined_via, join_seen)
+  insert into profiles (id, display_name, status, role, terms_accepted_at)
   values (
     new.id,
-    nm,
-    case when first_user or pre.email is not null or rid is not null then 'active'::member_status else 'pending'::member_status end,
+    left(coalesce(nullif(trim(new.raw_user_meta_data ->> 'display_name'), ''), pre.display_name, split_part(new.email, '@', 1)), 40),
+    case when first_user or pre.email is not null then 'active'::member_status else 'pending'::member_status end,
     case when first_user then 'admin'::member_role  else 'member'::member_role  end,
-    case when new.raw_user_meta_data ? 'terms_accepted_at' then now() end,
-    case when pre.email is not null then 'email' when rid is not null then 'roster' end,
-    rid is null
+    case when new.raw_user_meta_data ? 'terms_accepted_at' then now() end
   );
   if pre.email is not null then
     update preapproved_emails set used_at = now() where email = pre.email;
-  end if;
-  if rid is not null then
-    update roster set claimed_by = new.id, claimed_at = now() where id = rid;
   end if;
   return new;
 end $$;
@@ -436,8 +371,6 @@ begin
     new.status             := old.status;
     new.accept_anonymous   := old.accept_anonymous;
     new.can_send_anonymous := old.can_send_anonymous;
-    new.join_seen          := old.join_seen;
-    new.joined_via         := old.joined_via;
   end if;
   if auth.uid() is not null and auth.uid() <> old.id then
     new.display_name := old.display_name;
@@ -657,7 +590,7 @@ begin
         on conflict (email) do update set display_name = coalesce(excluded.display_name, x.display_name);
       addr := em; result := 'added';
     elsif st = 'pending' then
-      update profiles set status = 'active', joined_via = 'email' where id = uid;
+      update profiles set status = 'active' where id = uid;
       insert into preapproved_emails as x (email, display_name, added_by, used_at) values (em, nm, auth.uid(), now())
         on conflict (email) do update set used_at = now();
       addr := em; result := 'activated';
@@ -666,41 +599,6 @@ begin
     end if;
     return next;
   end loop;
-end $$;
-
--- Admin: add names to the roster (re-pasting the same list adds nothing; a name listed twice may be
--- claimed twice). Pending accounts whose name now matches are let in. Returns how many names were added
--- and how many waiting accounts were let in.
-create or replace function add_roster(p_names text[])
-returns table (added int, activated int)
-language plpgsql security definer set search_path = public as $$
-declare
-  r record;
-  p record;
-  rid bigint;
-begin
-  if not is_admin() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  added := 0;
-  activated := 0;
-  for r in
-    select min(n) as name, tk, count(*)::int as want
-    from (select left(trim(regexp_replace(x, '\s+', ' ', 'g')), 60) as n, name_tokens(x) as tk from unnest(coalesce(p_names, '{}')) x) s
-    where cardinality(tk) >= 2 and char_length(n) >= 2
-    group by tk
-  loop
-    for i in 1 .. r.want - (select count(*)::int from roster where tokens = r.tk) loop
-      insert into roster (name, tokens, surname, added_by) values (r.name, r.tk, name_tokens(split_part(r.name, ' ', 1)), auth.uid());
-      added := added + 1;
-    end loop;
-  end loop;
-  for p in select id, display_name from profiles where status = 'pending' order by created_at loop
-    rid := roster_match(p.display_name);
-    continue when rid is null;
-    update roster set claimed_by = p.id, claimed_at = now() where id = rid;
-    update profiles set status = 'active', joined_via = 'roster', join_seen = false where id = p.id;
-    activated := activated + 1;
-  end loop;
-  return next;
 end $$;
 
 -- Pin board of a room. Any member may pin; announcement rooms only by mods.
@@ -944,9 +842,6 @@ $$;
 
 revoke execute on function add_preapproved(jsonb) from anon, public;
 grant execute on function add_preapproved(jsonb) to authenticated;
-revoke execute on function add_roster(text[]) from anon, public;
-grant execute on function add_roster(text[]) to authenticated;
-revoke execute on function roster_match(text) from anon, public, authenticated;
 revoke execute on function create_room, send_message, mark_room_read, mark_room_unread, set_message_pinned, my_rooms,
   post_wall, start_dm, send_dm, toggle_dm_reaction, mark_dm_read, mark_dm_unread, set_dm_closed, my_conversations,
   member_stats from anon, public;
@@ -962,7 +857,6 @@ alter table channel_reads    enable row level security;
 alter table reactions        enable row level security;
 alter table stars            enable row level security;
 alter table preapproved_emails enable row level security;
-alter table roster           enable row level security;
 alter table message_likes    enable row level security;
 alter table dm_reactions     enable row level security;
 alter table anon_authors     enable row level security;
@@ -1028,12 +922,6 @@ drop policy if exists preapproved_admin_select on preapproved_emails;
 create policy preapproved_admin_select on preapproved_emails for select using (is_admin());
 drop policy if exists preapproved_admin_delete on preapproved_emails;
 create policy preapproved_admin_delete on preapproved_emails for delete using (is_admin());
-
--- roster: admins only (adding goes through add_roster)
-drop policy if exists roster_admin_select on roster;
-create policy roster_admin_select on roster for select using (is_admin());
-drop policy if exists roster_admin_delete on roster;
-create policy roster_admin_delete on roster for delete using (is_admin());
 
 drop policy if exists stars_own on stars;
 create policy stars_own on stars for all using (user_id = auth.uid()) with check (user_id = auth.uid());

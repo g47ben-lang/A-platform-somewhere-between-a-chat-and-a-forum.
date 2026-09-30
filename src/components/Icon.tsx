@@ -6,7 +6,7 @@ const ICONS = [
   'add', 'add_photo_alternate', 'add_reaction', 'admin_panel_settings', 'arrow_downward', 'block',
   'campaign', 'chat', 'check', 'close', 'content_copy', 'delete', 'download', 'edit', 'error',
   'format_quote', 'forum', 'forward', 'group', 'home', 'keep', 'link', 'lock', 'logout', 'mail',
-  'mark_chat_unread', 'menu', 'mood', 'more_vert', 'person', 'photo_camera', 'reply', 'schedule',
+  'mark_chat_unread', 'menu', 'mood', 'more_vert', 'person', 'person_add', 'photo_camera', 'reply', 'schedule',
   'search', 'send', 'settings', 'shield_person', 'star', 'thumb_up', 'videocam', 'visibility',
   'visibility_off', 'workspace_premium',
 ] as const;

@@ -335,6 +335,44 @@ update profiles set terms_accepted_at = null where id = auth.uid();
 select pg_temp.check((select terms_accepted_at is not null from profiles where id = auth.uid()), 'acceptance cannot be removed');
 reset role;
 
+-- ===== Roster: names on the yeshiva list get in at once =====
+insert into auth.users (id, email, raw_user_meta_data) values ('00000000-0000-0000-0000-0000000000f1', 'f1@x.com', '{"display_name":"יוסף חיים ביטון"}');
+select pg_temp.check((select status = 'pending' from profiles where id = '00000000-0000-0000-0000-0000000000f1'), 'empty roster: sign-up waits');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+select pg_temp.denied($$select * from add_roster(array['כהן יוסף'])$$, 'only admins add roster names');
+select pg_temp.denied($$select roster_match('כהן יוסף')$$, 'roster_match is internal');
+update profiles set join_seen = false, joined_via = 'roster' where id = auth.uid();
+select pg_temp.check((select join_seen and joined_via is null from profiles where id = auth.uid()), 'members cannot change join flags');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+select pg_temp.check((select added = 7 and activated = 1 from add_roster(array[
+  'הנדלר משה-שמואל', 'ביטון יוסף-חיים', 'אדלר אליעזר-מאיר', 'כהן יוסף', 'כהן  יוסף', 'הופמן משה אהרון', 'x', 'וייס יצחק-יוסף'])), 'roster added; waiting match let in');
+select pg_temp.check((select added = 0 and activated = 0 from add_roster(array['כהן יוסף', 'כהן יוסף', 'אדלר אליעזר-מאיר'])), 're-pasting adds nothing');
+select pg_temp.check((select status = 'active' and joined_via = 'roster' and not join_seen from profiles where id = '00000000-0000-0000-0000-0000000000f1'), 'activated waiting member flagged for the admin');
+reset role;
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('00000000-0000-0000-0000-0000000000f2', 'f2@x.com', '{"display_name":"אליעזר אדלר"}'),
+  ('00000000-0000-0000-0000-0000000000f3', 'f3@x.com', '{"display_name":"יוסף כהן"}'),
+  ('00000000-0000-0000-0000-0000000000f4', 'f4@x.com', '{"display_name":"כהן יוסף"}'),
+  ('00000000-0000-0000-0000-0000000000f5', 'f5@x.com', '{"display_name":"יוסף כהן"}'),
+  ('00000000-0000-0000-0000-0000000000f6', 'f6@x.com', '{"display_name":"אהרן הופמן משה"}'),
+  ('00000000-0000-0000-0000-0000000000f7', 'f7@x.com', '{"display_name":"יצחק ויס"}'),
+  ('00000000-0000-0000-0000-0000000000f8', 'f8@x.com', '{"display_name":"כהן"}'),
+  ('00000000-0000-0000-0000-0000000000f9', 'f9@x.com', '{"display_name":"משה שמואל"}');
+select pg_temp.check((select bool_and(status = 'active' and joined_via = 'roster' and not join_seen) from profiles where id in ('00000000-0000-0000-0000-0000000000f2', '00000000-0000-0000-0000-0000000000f3', '00000000-0000-0000-0000-0000000000f4', '00000000-0000-0000-0000-0000000000f6', '00000000-0000-0000-0000-0000000000f7')),
+  'roster names get in: any order, missing second name, ו/י spelling');
+select pg_temp.check((select status = 'pending' from profiles where id = '00000000-0000-0000-0000-0000000000f5'), 'each roster name gets in once');
+select pg_temp.check((select status = 'pending' from profiles where id = '00000000-0000-0000-0000-0000000000f8'), 'a single word never matches');
+select pg_temp.check((select status = 'pending' from profiles where id = '00000000-0000-0000-0000-0000000000f9'), 'first names without the surname never match');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+select pg_temp.check((select count(*) = 0 from roster), 'members cannot read the roster');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+select pg_temp.check((select count(*) = 7 and count(claimed_by) = 6 from roster), 'admin sees the roster and who claimed it');
+update profiles set join_seen = true where id = '00000000-0000-0000-0000-0000000000f2';
+select pg_temp.check((select join_seen from profiles where id = '00000000-0000-0000-0000-0000000000f2'), 'admin marks a join as seen');
+reset role;
+
 -- ===== Bans =====
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
 update profiles set status = 'banned' where id = '00000000-0000-0000-0000-00000000000c';
