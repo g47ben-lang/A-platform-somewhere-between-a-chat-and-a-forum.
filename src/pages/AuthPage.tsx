@@ -62,7 +62,7 @@ export default function AuthPage() {
 
   const heading = mode === 'login' ? 'התחברות' : mode === 'signup' ? 'יצירת חשבון' : 'איפוס סיסמה';
   const sub =
-    mode === 'login' ? `המשך אל ${SITE_NAME}` : mode === 'signup' ? 'ההצטרפות מיועדת לבחורי הישיבה בלבד' : 'נשלח אליך קישור לבחירת סיסמה חדשה';
+    mode === 'login' ? `המשך אל ${SITE_NAME}` : mode === 'signup' ? 'כל הרשמה ממתינה לאישור מנהל, חוץ ממי שמזוהה מראש' : 'נשלח אליך קישור לבחירת סיסמה חדשה';
 
   return (
     <div className="auth-screen">
@@ -79,7 +79,7 @@ export default function AuthPage() {
           <label className="field">
             <span>שם מלא (פרטי ומשפחה)</span>
             <input value={name} onChange={(e) => setName(e.target.value)} maxLength={40} autoComplete="name" required />
-            <span className="field-hint">כמו ברשימת הישיבה. בחור ישיבה שכותב את שמו המלא נכנס מיד.</span>
+            <span className="field-hint">שם פרטי ושם משפחה. אם השם מזוהה ברשימת הוועד, תיכנס בלי להמתין לאישור.</span>
           </label>
         )}
         <label className="field">
@@ -147,14 +147,12 @@ function JoinInfo({ login }: { login: boolean }) {
     <div className="join-info">
       <strong>איך נכנסים?</strong>
       <ul>
+        <li>כל משתמש חדש ממתין לאישור של מנהל.</li>
         <li>
-          <b>היית בצ'אט הקודם של הוועד?</b> המייל שלך כבר מאושר. יוצרים חשבון עם אותו מייל ונכנסים מיד.
+          <b>בלי המתנה:</b> מי שנרשם עם שם מלא, פרטי ומשפחה, של בחור מהוועד, והמערכת מזהה אותו ברשימה, נכנס מיד.
         </li>
         <li>
-          <b>בחור בישיבה?</b> נרשמים עם השם המלא, פרטי ומשפחה, כמו ברשימת הישיבה, ונכנסים אוטומטית.
-        </li>
-        <li>
-          <b>אחרים:</b> הבקשה ממתינה לבדיקה של מנהל, ולא כל בקשה מאושרת.
+          <b>היית בצ'אט הקודם של הוועד?</b> המייל שלך כבר מאושר. נרשמים עם אותו מייל ונכנסים מיד.
         </li>
       </ul>
       {login ? (
