@@ -12,6 +12,7 @@ export default function AuthPage() {
   const [password, setPassword] = useState('');
   const [pw, setPw] = useState({ password: '', confirm: '' });
   const [name, setName] = useState('');
+  const [agreed, setAgreed] = useState(false);
   const [showPw, setShowPw] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -31,6 +32,7 @@ export default function AuthPage() {
       if (name.trim().length < 2) return setError('יש להזין שם תצוגה (לפחות 2 תווים)');
       const problem = passwordProblem(pw.password, pw.confirm);
       if (problem) return setError(problem);
+      if (!agreed) return setError('יש לאשר את תקנון התוכן כדי להירשם');
     }
     setBusy(true);
     try {
@@ -41,7 +43,7 @@ export default function AuthPage() {
         const { data, error } = await supabase.auth.signUp({
           email: email.trim(),
           password: pw.password,
-          options: { data: { display_name: name.trim() }, emailRedirectTo: appUrl() },
+          options: { data: { display_name: name.trim(), terms_accepted_at: new Date().toISOString() }, emailRedirectTo: appUrl() },
         });
         if (error) throw error;
         if (!data.session) setInfo('שלחנו אליך מייל לאימות הכתובת. לאחר האימות אפשר להתחבר.');
@@ -100,6 +102,15 @@ export default function AuthPage() {
           </label>
         )}
         {mode === 'signup' && <PasswordFields value={pw} onChange={setPw} label="סיסמה" />}
+        {mode === 'signup' && (
+          <label className="terms">
+            <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} required />
+            <span>
+              <strong>תקנון תוכן:</strong> אני מצהיר שאעלה לצ'אט רק תכנים התואמים את מדיניות נטפרי, כדי למנוע את חסימת הצ'אט.
+              ידוע לי שמשתמש שיעבור על כך יוסר מהקהילה לאלתר.
+            </span>
+          </label>
+        )}
 
         {error && <div className="alert error"><Icon name="error" size={18} /> {error}</div>}
         {info && <div className="alert info"><Icon name="mail" size={18} /> {info}</div>}

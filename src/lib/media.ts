@@ -56,6 +56,12 @@ export function useSignedUrl(path: string | null | undefined): string | null {
   return url;
 }
 
+/** Physically removes a stored file (allowed for admins/moderators). Best effort. */
+export async function removeFile(path: string): Promise<void> {
+  cache.delete(path);
+  await supabase.storage.from(BUCKET).remove([path]);
+}
+
 // ---------- Uploads ----------
 function loadImage(file: Blob): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {

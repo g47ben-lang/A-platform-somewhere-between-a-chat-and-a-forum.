@@ -6,6 +6,7 @@ import { subscribe } from '../lib/realtime';
 import { errorText } from '../lib/format';
 import { useTyping } from '../lib/useTyping';
 import { messageLink, summarizeReactions } from '../lib/chat';
+import { removeFile } from '../lib/media';
 import type { Message, Reaction } from '../types';
 import Avatar, { SpaceTile } from '../components/Avatar';
 import ChatStream, { type MenuAction, type StreamItem } from '../components/ChatStream';
@@ -251,9 +252,16 @@ export default function RoomPage() {
   }
 
   async function remove(id: number) {
-    const ok = await confirm({ title: 'מחיקת הודעה', body: 'ההודעה תימחק לכל המשתתפים.', confirmLabel: 'מחיקה', danger: true });
+    const target = byId.get(id);
+    const ok = await confirm({
+      title: target?.attachment ? (target.attachment.type === 'video' ? 'מחיקת סרטון' : 'מחיקת תמונה') : 'מחיקת הודעה',
+      body: 'ההודעה תימחק לכל המשתתפים.',
+      confirmLabel: 'מחיקה',
+      danger: true,
+    });
     if (!ok) return;
     const { error } = await supabase.from('messages').update({ deleted: true }).eq('id', id);
+    if (!error && isMod && target?.attachment) removeFile(target.attachment.path);
     if (error) toast(errorText(error), 'error');
     else setMessages((prev) => prev?.map((x) => (x.id === id ? { ...x, deleted: true, body: '', attachment: null } : x)) ?? prev);
   }

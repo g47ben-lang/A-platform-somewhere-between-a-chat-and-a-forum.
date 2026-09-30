@@ -896,3 +896,16 @@ button.author:hover, .title-link:hover { text-decoration: underline; }
   .emoji-grid { grid-template-columns: repeat(8, 1fr); }
   .menu.floating { left: 8px !important; right: 8px; top: auto !important; bottom: 8px; min-width: 0; }
 }
+
+/* Sign-up content rules */
+.terms { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border-radius: 12px; background: var(--surface-2); font-size: 13px; line-height: 1.55; color: var(--text-2); cursor: pointer; }
+.terms input { width: 18px; height: 18px; margin-top: 2px; flex-shrink: 0; accent-color: var(--primary); }
+.upload-note { font-size: 11px; color: var(--muted); padding: 2px 16px 0; }
+
+/* Admin media */
+.media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-top: 12px; }
+.media-tile { margin: 0; border: 1px solid var(--divider); border-radius: 12px; overflow: hidden; background: var(--surface); }
+.media-thumb { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: #000; }
+.media-tile figcaption { display: flex; align-items: center; gap: 6px; padding: 8px 10px; }
+.media-tile figcaption a { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 12px; }
+.media-tile figcaption span { color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }

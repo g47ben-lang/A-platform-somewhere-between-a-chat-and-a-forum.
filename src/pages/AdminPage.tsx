@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useApp } from '../AppContext';
 import { supabase } from '../supabase';
-import type { MemberRole, Profile, Room } from '../types';
+import type { MemberRole, Message, Profile, Room } from '../types';
+import { removeFile, useSignedUrl } from '../lib/media';
 import { errorText, ROLE_LABEL, STATUS_LABEL, timeAgo } from '../lib/format';
 import Avatar, { SpaceTile } from '../components/Avatar';
 import { useFeedback } from '../components/Feedback';
@@ -9,7 +11,7 @@ import Icon from '../components/Icon';
 import { useProfileCard } from '../components/ProfileCard';
 import RoomDialog from '../components/RoomDialog';
 
-type Tab = 'members' | 'anonymous' | 'rooms';
+type Tab = 'members' | 'anonymous' | 'rooms' | 'media';
 type ProfilePatch = Partial<Pick<Profile, 'status' | 'role' | 'accept_anonymous' | 'can_send_anonymous'>>;
 
 export default function AdminPage() {
@@ -87,9 +89,12 @@ export default function AdminPage() {
           <button className={tab === 'rooms' ? 'on' : ''} onClick={() => setTab('rooms')} role="tab">
             <Icon name="forum" size={20} /> חדרים
           </button>
+          <button className={tab === 'media' ? 'on' : ''} onClick={() => setTab('media')} role="tab">
+            <Icon name="add_photo_alternate" size={20} /> מדיה
+          </button>
         </div>
 
-        {tab !== 'rooms' && (
+        {(tab === 'members' || tab === 'anonymous') && (
           <div className="toolbar">
             <div className="field-search">
               <Icon name="search" />
@@ -211,6 +216,8 @@ export default function AdminPage() {
           </>
         )}
 
+        {tab === 'media' && <MediaAdmin />}
+
         {tab === 'rooms' && (
           <section className="card-section">
             <div className="section-head">
@@ -247,4 +254,72 @@ export default function AdminPage() {
       {newRoom && <RoomDialog onClose={() => setNewRoom(false)} />}
     </div>
   );
+}
+
+/** Every photo and video posted in the rooms, newest first, with one-click deletion. */
+function MediaAdmin() {
+  const { rooms, nameOf } = useApp();
+  const { confirm, toast } = useFeedback();
+  const [items, setItems] = useState<Message[] | null>(null);
+  const [kind, setKind] = useState<'all' | 'video' | 'image'>('all');
+
+  useEffect(() => {
+    let q = supabase.from('messages').select('*').eq('deleted', false).not('attachment', 'is', null).order('created_at', { ascending: false }).limit(120);
+    if (kind !== 'all') q = q.eq('attachment->>type', kind);
+    q.then(({ data }) => setItems((data as Message[]) ?? []));
+  }, [kind]);
+
+  async function remove(m: Message) {
+    const ok = await confirm({ title: m.attachment?.type === 'video' ? 'מחיקת הסרטון' : 'מחיקת התמונה', body: 'ההודעה והקובץ יימחקו לצמיתות לכל המשתתפים.', confirmLabel: 'מחיקה', danger: true });
+    if (!ok) return;
+    const { error } = await supabase.from('messages').update({ deleted: true }).eq('id', m.id);
+    if (error) return toast(errorText(error), 'error');
+    if (m.attachment) await removeFile(m.attachment.path);
+    setItems((prev) => prev?.filter((x) => x.id !== m.id) ?? prev);
+    toast('נמחק');
+  }
+
+  const roomLink = (id: number) => (rooms.find((r) => r.id === id)?.is_main ? '/' : `/room/${id}`);
+
+  return (
+    <section className="card-section">
+      <div className="section-head">
+        <h2>תמונות וסרטונים בחדרים</h2>
+        <div className="segmented" role="tablist">
+          {([['all', 'הכל'], ['video', 'סרטונים'], ['image', 'תמונות']] as const).map(([k, label]) => (
+            <button key={k} className={kind === k ? 'on' : ''} onClick={() => setKind(k)} role="tab" aria-selected={kind === k}>{label}</button>
+          ))}
+        </div>
+      </div>
+      <p className="muted small">מחיקה מסירה את ההודעה ואת הקובץ עצמו מהאחסון. שיחות אישיות אינן גלויות למנהלים ולכן אינן מופיעות כאן.</p>
+      {items === null ? (
+        <div className="spinner" />
+      ) : items.length === 0 ? (
+        <div className="empty-inline small"><span>אין קבצים להצגה.</span></div>
+      ) : (
+        <div className="media-grid">
+          {items.map((m) => (
+            <figure key={m.id} className="media-tile">
+              <MediaThumb path={m.attachment!.path} video={m.attachment!.type === 'video'} />
+              <figcaption>
+                <Link to={`${roomLink(m.channel_id)}?m=${m.id}`} className="plain-link">
+                  <strong>{m.anonymous ? 'אנונימי' : nameOf(m.author_id)}</strong>
+                  <span>{rooms.find((r) => r.id === m.channel_id)?.name} · {timeAgo(m.created_at)}</span>
+                </Link>
+                <button className="icon-btn small danger" onClick={() => remove(m)} aria-label="מחיקה" title="מחיקה">
+                  <Icon name="delete" size={18} />
+                </button>
+              </figcaption>
+            </figure>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function MediaThumb({ path, video }: { path: string; video: boolean }) {
+  const url = useSignedUrl(path);
+  if (!url) return <div className="media-loading media-thumb" />;
+  return video ? <video className="media-thumb" src={url} controls preload="metadata" /> : <img className="media-thumb" src={url} alt="" loading="lazy" />;
 }

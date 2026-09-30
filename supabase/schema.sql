@@ -888,6 +888,10 @@ begin
   execute 'drop policy if exists media_read on storage.objects';
   execute $p$create policy media_read on storage.objects for select to authenticated
              using (bucket_id = 'media' and public.is_active())$p$;
+  -- Admins and moderators may physically delete any stored photo or video.
+  execute 'drop policy if exists media_delete on storage.objects';
+  execute $p$create policy media_delete on storage.objects for delete to authenticated
+             using (bucket_id = 'media' and public.is_mod())$p$;
   execute 'drop policy if exists media_upload on storage.objects';
   execute $p$create policy media_upload on storage.objects for insert to authenticated
              with check (bucket_id = 'media' and public.is_active()
