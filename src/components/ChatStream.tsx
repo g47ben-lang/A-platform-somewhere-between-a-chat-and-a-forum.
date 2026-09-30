@@ -67,6 +67,8 @@ interface Props {
   firstUnreadId?: number | null;
   highlightId?: number | null;
   empty: ReactNode;
+  /** Shown above the first message once the whole history is loaded (1:1 chats: who this is). */
+  lead?: ReactNode;
   typingLabel?: string;
   /** Changes whenever the user sends, to force scrolling to the newest message. */
   sentTick?: number;
@@ -75,7 +77,7 @@ interface Props {
 const GROUP_MS = 5 * 60 * 1000;
 
 export default function ChatStream(props: Props) {
-  const { items, hasOlder, onLoadOlder, firstUnreadId, highlightId, empty, typingLabel, sentTick } = props;
+  const { items, hasOlder, onLoadOlder, firstUnreadId, highlightId, empty, lead, typingLabel, sentTick } = props;
   const ref = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
   const preserve = useRef<number | null>(null);
@@ -156,12 +158,14 @@ export default function ChatStream(props: Props) {
   return (
     <div className="stream-wrap">
       <div className="stream bubbles" ref={ref} onScroll={onScroll}>
+        <div className="stream-inner">
         {items === null ? (
           <div className="spinner" />
         ) : items.length === 0 ? (
           <div className="empty-state">{empty}</div>
         ) : (
           <>
+            {!hasOlder && lead && <div className="stream-lead">{lead}</div>}
             {hasOlder && (
               <div className="older-row">{loadingOlder ? <div className="spinner small" /> : <button className="btn text small" onClick={loadOlder}>הודעות קודמות</button>}</div>
             )}
@@ -190,6 +194,7 @@ export default function ChatStream(props: Props) {
             })}
           </>
         )}
+        </div>
       </div>
       <div className="typing-line" aria-live="polite">
         {typingLabel && (

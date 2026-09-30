@@ -293,25 +293,49 @@ export default function DmPage() {
     return a;
   }
 
+  const intro = (
+    <div className="dm-intro">
+      <Avatar id={conv.other_id} name={otherName} size={72} anonymous={!conv.other_id} />
+      <h2>{otherName}</h2>
+      <p className="muted">
+        {conv.anonymous
+          ? conv.i_am_hidden ? 'שיחה בעילום שם. הזהות שלך לא נחשפת.' : 'שיחה עם שולח אנונימי.'
+          : 'זו תחילת השיחה הפרטית ביניכם. ההודעות גלויות רק לשניכם.'}
+      </p>
+      {conv.other_id && (
+        <button className="btn tonal small" onClick={(e) => openCard(conv.other_id!, e.currentTarget)}>
+          <Icon name="person" size={18} /> לפרופיל
+        </button>
+      )}
+    </div>
+  );
+
   return (
     <section className="pane chat-pane">
-      <header className="pane-head">
+      <header className="pane-head dm-head">
         {conv.other_id ? (
           <button className="avatar-link" onClick={(e) => openCard(conv.other_id!, e.currentTarget)} aria-label={otherName}>
-            <Avatar id={conv.other_id} name={otherName} size={36} online={online.has(conv.other_id)} />
+            <Avatar id={conv.other_id} name={otherName} size={40} online={online.has(conv.other_id)} />
           </button>
         ) : (
-          <Avatar anonymous size={36} />
+          <Avatar anonymous size={40} />
         )}
         <div className="pane-titles">
           <h1>
             {conv.other_id ? <button className="title-link" onClick={(e) => openCard(conv.other_id!, e.currentTarget)}>{otherName}</button> : otherName}
           </h1>
-          <p>{conv.other_id ? (online.has(conv.other_id) ? 'מחובר עכשיו' : 'לא מחובר') : 'זהות השולח מוסתרת'}</p>
+          <p className={conv.other_id && online.has(conv.other_id) ? 'is-online' : undefined}>
+            {conv.other_id ? (online.has(conv.other_id) ? 'מחובר עכשיו' : 'לא מחובר') : 'זהות השולח מוסתרת'}
+          </p>
         </div>
         {recipientOfAnon && (
           <button className="btn outlined small" onClick={() => setClosed(!conv.closed)}>
             <Icon name="block" size={18} /> {conv.closed ? 'ביטול חסימה' : 'חסימה'}
+          </button>
+        )}
+        {conv.other_id && (
+          <button className="icon-btn" title="פרופיל" aria-label="פרופיל" onClick={(e) => openCard(conv.other_id!, e.currentTarget)}>
+            <Icon name="person" />
           </button>
         )}
       </header>
@@ -338,13 +362,8 @@ export default function DmPage() {
         highlightId={linkedId ?? editing?.id ?? null}
         typingLabel={typingLabel}
         sentTick={sentTick}
-        empty={
-          <>
-            <Avatar id={conv.other_id} name={otherName} size={64} anonymous={!conv.other_id} />
-            <p><strong>{otherName}</strong></p>
-            <p className="muted">זו תחילת השיחה ביניכם. ההודעות גלויות רק לשניכם.</p>
-          </>
-        }
+        lead={intro}
+        empty={intro}
       />
 
       <Composer

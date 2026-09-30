@@ -1255,3 +1255,17 @@ button.author:hover, .title-link:hover { text-decoration: underline; }
 .slice-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 @media (max-width: 560px) { .poll-results-wrap { grid-template-columns: 1fr; justify-items: center; } .poll-results-list { width: 100%; } }
 @media (max-width: 600px) { .stat-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* =====================================================================
+   1:1 chats: messages sit at the bottom (Google Chat), with an intro of
+   who this is above the first message
+   ===================================================================== */
+.stream-inner { min-height: 100%; display: flex; flex-direction: column; justify-content: flex-end; }
+.stream-inner > .empty-state { flex: 1; }
+.stream-lead { padding: 8px 20px 4px; }
+.dm-intro { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; padding: 24px 16px 8px; }
+.dm-intro h2 { font-size: 20px; font-weight: 500; margin-top: 6px; }
+.dm-intro p { font-size: 13px; max-width: 360px; }
+.dm-intro .btn { margin-top: 6px; }
+.dm-head .pane-titles h1 { font-size: 17px; }
+.dm-head .pane-titles p.is-online { color: var(--presence); }
