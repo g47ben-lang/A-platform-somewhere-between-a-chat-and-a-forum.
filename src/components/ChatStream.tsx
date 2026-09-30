@@ -32,6 +32,8 @@ export interface StreamItem {
   starred?: boolean;
   quote?: { name: string; text: string; media?: boolean } | null;
   reactions: ReactionSummary[];
+  /** Reputation likes (rooms only). */
+  likes?: { count: number; liked: boolean; names: string[] };
 }
 
 export interface MenuAction {
@@ -47,6 +49,8 @@ interface Props {
   hasOlder: boolean;
   onLoadOlder: () => Promise<void>;
   onReact: (item: StreamItem, emoji: string) => void;
+  /** Reputation like; rooms only. */
+  onLike?: (item: StreamItem) => void;
   onReply?: (item: StreamItem) => void;
   menuFor: (item: StreamItem) => MenuAction[];
   /** Rooms show author names above other people's bubbles; 1:1 chats don't need them. */
@@ -312,6 +316,17 @@ function Bubble({
 
           {!m.deleted && (
             <div className="b-toolbar" onClick={(e) => e.stopPropagation()}>
+              {props.onLike && !m.mine && (
+                <button
+                  className={`like-btn ${m.likes?.liked ? 'on' : ''}`}
+                  onClick={() => props.onLike!(m)}
+                  title={m.likes?.liked ? 'ביטול לייק' : 'לייק (מוסיף מוניטין לכותב)'}
+                  aria-label="לייק"
+                  aria-pressed={!!m.likes?.liked}
+                >
+                  <Icon name="thumb_up" filled={m.likes?.liked} size={18} />
+                </button>
+              )}
               <div className="b-quick">
                 {quick.map((e) => (
                   <button key={e} className="emoji-btn" onClick={() => react(e)} title={`תגובה ${e}`}>{e}</button>
@@ -334,8 +349,19 @@ function Bubble({
           )}
         </div>
 
-        {m.reactions.length > 0 && (
+        {(m.reactions.length > 0 || (m.likes?.count ?? 0) > 0) && (
           <div className="b-reactions">
+            {m.likes && m.likes.count > 0 && (
+              <button
+                className={`like-chip ${m.likes.liked ? 'on' : ''}`}
+                onClick={() => props.onLike?.(m)}
+                disabled={m.mine || !props.onLike}
+                title={`לייק: ${m.likes.names.join(', ')}`}
+              >
+                <Icon name="thumb_up" filled size={15} />
+                <span>{m.likes.count}</span>
+              </button>
+            )}
             {m.reactions.map((r) => (
               <button key={r.emoji} className={`reaction ${r.mine ? 'mine' : ''}`} onClick={() => react(r.emoji)} title={r.names.join(', ')}>
                 <span className="r-emoji">{r.emoji}</span>

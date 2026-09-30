@@ -142,7 +142,7 @@ export default function ProfilePage() {
             <Stat label="לייקים שהתקבלו" value={stats?.likes} />
             <Stat label="דירוג בקהילה" value={rank ?? undefined} prefix="#" />
           </div>
-          <p className="muted small rep-explain">כל לייק שמתקבל = 5 נקודות, כל הודעה = נקודה אחת. תוכן אנונימי לא נספר.</p>
+          <p className="muted small rep-explain">כל לייק שמתקבל מחבר אחר = 5 נקודות, כל הודעה = נקודה אחת. תגובות אימוג'י ותוכן אנונימי לא נספרים.</p>
         </section>
 
         <section className="wall">

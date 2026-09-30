@@ -18,12 +18,12 @@ emoji set in `src/lib/emoji.ts` is curated for that audience (no immodest/romant
 - Backend: Supabase only (Postgres + Auth + Realtime). No custom server. Supabase auth uses PKCE (`src/supabase.ts`) because the hash belongs to the router.
 - All authorization lives in `supabase/schema.sql` (RLS policies + guard triggers + SECURITY DEFINER functions). The UI just hides buttons; never rely on it for security.
 - Content creation goes through RPCs (`send_message`, `create_room`, `post_wall`, `start_dm`, `send_dm`, `toggle_dm_reaction`); direct inserts are not allowed (room `reactions` and `stars` are plain RLS inserts). Sidebar data: `my_rooms()`, `my_conversations()`.
-- Anonymity: anonymous rows have `author_id`/`sender_id` NULL. The real author sits in `anon_authors` (readable only by that author) or `dm_participants.hidden`. Anonymous content never counts toward reputation (it would leak identity). DM reactions by the hidden side store user_id NULL. Keep it that way.
+- Anonymity: anonymous rows have `author_id`/`sender_id` NULL. The real author sits in `anon_authors` (readable only by that author) or `dm_participants.hidden`. Reputation comes only from `message_likes` (a plain like, rooms only, not on your own message) + message count; emoji `reactions` are expression only. Anonymous content never counts toward reputation (it would leak identity). DM reactions by the hidden side store user_id NULL. Keep it that way.
 - Who may send / receive anonymously is decided by admins only (`profiles.can_send_anonymous`, `accept_anonymous`); enforced in the RPCs on every message.
 - Global state (session, own profile, all profiles, channels, presence) in `src/AppContext.tsx`.
 - Deploy: `.github/workflows/deploy.yml` builds on push to `main`. Supabase URL + publishable key live in `.env.production` (public by design); optional repo Variable `VITE_SITE_NAME`. Never commit the `sb_secret_` key.
 
 ## Checks before pushing
 - `npm run build` (typecheck + bundle)
-- `supabase/tests/run.sh` against a local Postgres 16 (mocks Supabase `auth` schema): permission tests on a fresh install plus upgrade tests from `tests/fixtures/schema_v1.sql`, `schema_v2.sql` and `schema_v3.sql`. Add a test for any policy/trigger change; when making a breaking schema change, snapshot the current schema as the next fixture.
+- `supabase/tests/run.sh` against a local Postgres 16 (mocks Supabase `auth` schema): permission tests on a fresh install plus upgrade tests from `tests/fixtures/schema_v1.sql`, `schema_v2.sql`, `schema_v3.sql` and `schema_v4.sql`. Add a test for any policy/trigger change; when making a breaking schema change, snapshot the current schema as the next fixture.
 - `schema.sql` must stay idempotent (safe to re-run on the live project).

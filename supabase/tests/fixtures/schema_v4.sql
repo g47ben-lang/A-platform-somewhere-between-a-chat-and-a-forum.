@@ -1,5 +1,5 @@
 -- =====================================================================
--- Community chat schema for Supabase (v5).
+-- Community chat schema for Supabase (v4).
 -- Run in the Supabase dashboard: SQL Editor -> New query -> paste -> Run.
 -- Idempotent: safe to re-run. Upgrades v1/v2 installs in place without losing data
 -- (v2 threads are converted into chat messages inside their room).
@@ -9,8 +9,7 @@
 --   messages: flat live chat per room: quote-replies, emoji reactions, photos/videos, pins, stars
 --   direct conversations (dm_*), optionally anonymous on the initiator's side
 --   profile walls (public messages to a member, optionally anonymous)
---   reputation = likes received from others * 5 + messages sent (anonymous content never counts);
---   emoji reactions are expression only and do not count
+--   reputation = reactions received from others * 5 + messages sent (anonymous content never counts)
 --
 -- Anonymity: anonymous rows store NO author id. The real author is kept in `anon_authors`,
 -- readable only by that author. Anonymous DM initiators are hidden via dm_participants.hidden.
@@ -135,26 +134,6 @@ create table if not exists anon_authors (
   author_id  uuid   not null references profiles on delete cascade,
   primary key (kind, item_id)
 );
-
--- Likes: a plain "like" on a room message, separate from emoji reactions, that builds the author's reputation.
--- First install of this table (upgrade from v4): earlier 👍 reactions from other members become likes.
-do $$
-begin
-  if to_regclass('public.message_likes') is null then
-    create table message_likes (
-      message_id  bigint not null references messages on delete cascade,
-      user_id     uuid   not null references profiles on delete cascade,
-      created_at  timestamptz not null default now(),
-      primary key (message_id, user_id)
-    );
-    insert into message_likes (message_id, user_id, created_at)
-      select r.message_id, r.user_id, r.created_at
-        from reactions r join messages m on m.id = r.message_id
-       where r.emoji = '👍' and r.user_id is distinct from m.author_id
-         and not exists (select 1 from anon_authors a where a.kind = 'message' and a.item_id = m.id and a.author_id = r.user_id)
-      on conflict do nothing;
-  end if;
-end $$;
 
 -- ---------- Profile walls ----------
 create table if not exists wall_posts (
@@ -751,7 +730,7 @@ language sql stable security definer set search_path = public as $$
    order by c.last_message_at desc;
 $$;
 
--- Reputation: 5 per like received from another member + 1 per message. Anonymous content never counts.
+-- Reputation: 5 per member who reacted to your message (not yourself) + 1 per message. Anonymous content never counts.
 drop function if exists member_stats();
 create function member_stats()
 returns table (id uuid, messages int, likes int, reputation int)
@@ -760,8 +739,8 @@ language sql stable security definer set search_path = public as $$
   from (
     select p.id,
       (select count(*)::int from messages m where m.author_id = p.id and not m.deleted) as messages,
-      (select count(*)::int from message_likes l join messages m on m.id = l.message_id
-        where m.author_id = p.id and not m.deleted and l.user_id <> p.id) as likes
+      (select count(distinct (r.message_id, r.user_id))::int from reactions r join messages m on m.id = r.message_id
+        where m.author_id = p.id and not m.deleted and r.user_id <> p.id) as likes
     from profiles p
     where p.status = 'active' and is_active()
   ) s;
@@ -781,7 +760,6 @@ alter table messages         enable row level security;
 alter table channel_reads    enable row level security;
 alter table reactions        enable row level security;
 alter table stars            enable row level security;
-alter table message_likes    enable row level security;
 alter table dm_reactions     enable row level security;
 alter table anon_authors     enable row level security;
 alter table wall_posts       enable row level security;
@@ -828,18 +806,6 @@ drop policy if exists reactions_insert on reactions;
 create policy reactions_insert on reactions for insert with check (is_active() and user_id = auth.uid());
 drop policy if exists reactions_delete on reactions;
 create policy reactions_delete on reactions for delete using (user_id = auth.uid());
-
--- likes: visible to all members; not on your own message (named or anonymous)
-drop policy if exists likes_select on message_likes;
-create policy likes_select on message_likes for select using (is_active());
-drop policy if exists likes_insert on message_likes;
-create policy likes_insert on message_likes for insert with check (
-  is_active() and user_id = auth.uid()
-  and not exists (select 1 from messages m where m.id = message_id and (m.author_id = auth.uid() or m.deleted))
-  and not owns_anon('message', message_id)
-);
-drop policy if exists likes_delete on message_likes;
-create policy likes_delete on message_likes for delete using (user_id = auth.uid());
 
 drop policy if exists stars_own on stars;
 create policy stars_own on stars for all using (user_id = auth.uid()) with check (user_id = auth.uid());
@@ -897,11 +863,10 @@ end $$;
 alter table reactions  replica identity full;
 alter table wall_posts replica identity full;
 alter table dm_reactions replica identity full;
-alter table message_likes replica identity full;
 do $$
 declare t text;
 begin
-  foreach t in array array['messages', 'reactions', 'message_likes', 'profiles', 'channels', 'wall_posts', 'dm_messages', 'dm_reactions'] loop
+  foreach t in array array['messages', 'reactions', 'profiles', 'channels', 'wall_posts', 'dm_messages', 'dm_reactions'] loop
     begin
       execute format('alter publication supabase_realtime add table %I', t);
     exception when duplicate_object then null;

@@ -39,6 +39,7 @@ export default function RoomPage() {
   const [messages, setMessages] = useState<Message[] | null>(null);
   const [hasOlder, setHasOlder] = useState(false);
   const [reactions, setReactions] = useState<Reaction[]>([]);
+  const [likes, setLikes] = useState<{ message_id: number; user_id: string }[]>([]);
   const [mineAnon, setMineAnon] = useState<Set<number>>(new Set());
   const [stars, setStars] = useState<Set<number>>(new Set());
   const [pinned, setPinned] = useState<Message[]>([]);
@@ -66,12 +67,14 @@ export default function RoomPage() {
     const ids = list.map((m) => m.id);
     if (!ids.length) return;
     const anonIds = list.filter((m) => m.anonymous).map((m) => m.id);
-    const [r, a, s] = await Promise.all([
+    const [r, a, s, l] = await Promise.all([
       supabase.from('reactions').select('message_id,user_id,emoji').in('message_id', ids),
       anonIds.length ? supabase.from('anon_authors').select('item_id').eq('kind', 'message').in('item_id', anonIds) : Promise.resolve({ data: [] }),
       supabase.from('stars').select('item_id').eq('kind', 'room').in('item_id', ids),
+      supabase.from('message_likes').select('message_id,user_id').in('message_id', ids),
     ]);
     const idSet = new Set(ids);
+    if (l.data) setLikes((prev) => [...prev.filter((x) => !idSet.has(x.message_id)), ...(l.data as { message_id: number; user_id: string }[])]);
     if (r.data) setReactions((prev) => [...prev.filter((x) => !idSet.has(x.message_id)), ...(r.data as Reaction[])]);
     if (a.data) setMineAnon((prev) => new Set([...prev, ...(a.data as { item_id: number }[]).map((x) => x.item_id)]));
     if (s.data) setStars((prev) => new Set([...prev, ...(s.data as { item_id: number }[]).map((x) => x.item_id)]));
@@ -95,6 +98,7 @@ export default function RoomPage() {
     let cancelled = false;
     setMessages(null);
     setReactions([]);
+    setLikes([]);
     setReplyTo(null);
     setEditing(null);
     setFirstUnreadId(null);
@@ -142,6 +146,14 @@ export default function RoomPage() {
           const r = p.new as Reaction;
           setReactions((prev) => (prev.some((x) => x.message_id === r.message_id && x.user_id === r.user_id && x.emoji === r.emoji) ? prev : [...prev, r]));
         })
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'message_likes' }, (p) => {
+          const l = p.new as { message_id: number; user_id: string };
+          setLikes((prev) => (prev.some((x) => x.message_id === l.message_id && x.user_id === l.user_id) ? prev : [...prev, l]));
+        })
+        .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'message_likes' }, (p) => {
+          const l = p.old as { message_id: number; user_id: string };
+          setLikes((prev) => prev.filter((x) => !(x.message_id === l.message_id && x.user_id === l.user_id)));
+        })
         .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'reactions' }, (p) => {
           const r = p.old as Reaction;
           setReactions((prev) => prev.filter((x) => !(x.message_id === r.message_id && x.user_id === r.user_id && x.emoji === r.emoji)));
@@ -185,9 +197,13 @@ export default function RoomPage() {
           (r) => r.user_id === me?.id,
           (r) => nameOf(r.user_id),
         ),
+        likes: (() => {
+          const ls = likes.filter((l) => l.message_id === m.id);
+          return { count: ls.length, liked: !!me && ls.some((l) => l.user_id === me.id), names: ls.map((l) => nameOf(l.user_id)) };
+        })(),
       };
     });
-  }, [messages, reactions, mineAnon, stars, byId, me, nameOf]);
+  }, [messages, reactions, likes, mineAnon, stars, byId, me, nameOf]);
 
   async function loadOlder() {
     const first = messages?.[0];
@@ -246,6 +262,24 @@ export default function RoomPage() {
       const { error } = await supabase.from('reactions').insert(row);
       if (error) {
         setReactions((prev) => prev.filter((r) => !(r.message_id === item.id && r.user_id === me.id && r.emoji === emoji)));
+        toast(errorText(error), 'error');
+      }
+    }
+  }
+
+  async function toggleLike(item: StreamItem) {
+    if (!me || item.mine) return;
+    const row = { message_id: item.id, user_id: me.id };
+    const liked = likes.some((l) => l.message_id === item.id && l.user_id === me.id);
+    if (liked) {
+      setLikes((prev) => prev.filter((l) => !(l.message_id === item.id && l.user_id === me.id)));
+      const { error } = await supabase.from('message_likes').delete().match(row);
+      if (error) toast(errorText(error), 'error');
+    } else {
+      setLikes((prev) => [...prev, row]);
+      const { error } = await supabase.from('message_likes').insert(row);
+      if (error) {
+        setLikes((prev) => prev.filter((l) => !(l.message_id === item.id && l.user_id === me.id)));
         toast(errorText(error), 'error');
       }
     }
@@ -414,6 +448,7 @@ export default function RoomPage() {
           hasOlder={hasOlder}
           onLoadOlder={loadOlder}
           onReact={react}
+          onLike={toggleLike}
           onReply={canWrite ? (item) => { setEditing(null); setReplyTo(byId.get(item.id)!); composer.current?.focus(); } : undefined}
           menuFor={menuFor}
           showNames

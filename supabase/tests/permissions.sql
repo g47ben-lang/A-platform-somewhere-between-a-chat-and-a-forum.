@@ -28,7 +28,7 @@ begin
   begin
     execute sql;
   exception
-    when insufficient_privilege or raise_exception or check_violation then
+    when insufficient_privilege or raise_exception or check_violation or unique_violation then
       raise notice 'ok  %', what;
       return;
   end;
@@ -108,14 +108,20 @@ reset role;
 -- ===== Likes & reputation =====
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
 insert into reactions (message_id, user_id, emoji) values ((select id from messages where body = 'שלום לכולם'), auth.uid(), '🔥');
+select pg_temp.denied($$insert into message_likes (message_id, user_id) values ((select id from messages where body = 'שלום לכולם'), auth.uid())$$, 'cannot like own message');
 reset role;
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000c');
 insert into reactions (message_id, user_id) values ((select id from messages where body = 'שלום לכולם'), auth.uid());
 insert into reactions (message_id, user_id, emoji) values ((select id from messages where body = 'שלום לכולם'), auth.uid(), '❤️');
 select pg_temp.check((select count(*) = 3 from reactions), 'emoji reactions stored (default 👍)');
 select pg_temp.denied($$insert into reactions (message_id, user_id) values ((select id from messages where body = 'שלום לכולם'), '00000000-0000-0000-0000-00000000000d')$$, 'cannot like on behalf of others');
--- bob: 2 messages; reacted by carol (twice, counts once) and by himself (ignored) -> 1*5 + 2 = 7
-select pg_temp.check((select reputation = 7 and likes = 1 from member_stats() where id = '00000000-0000-0000-0000-00000000000b'), 'reputation counts distinct other reactors only');
+-- emoji reactions are expression only: bob has 2 messages and no likes yet -> 2
+select pg_temp.check((select reputation = 2 and likes = 0 from member_stats() where id = '00000000-0000-0000-0000-00000000000b'), 'emoji reactions do not count toward reputation');
+insert into message_likes (message_id, user_id) values ((select id from messages where body = 'שלום לכולם'), auth.uid());
+select pg_temp.denied($$insert into message_likes (message_id, user_id) values ((select id from messages where body = 'שלום לכולם'), auth.uid())$$, 'one like per member per message');
+select pg_temp.denied($$insert into message_likes (message_id, user_id) values ((select id from messages where body = 'שלום לכולם'), '00000000-0000-0000-0000-00000000000d')$$, 'cannot like on behalf of others');
+-- bob: 2 messages + 1 like -> 1*5 + 2 = 7
+select pg_temp.check((select reputation = 7 and likes = 1 from member_stats() where id = '00000000-0000-0000-0000-00000000000b'), 'likes build reputation');
 reset role;
 
 -- ===== Moderation =====
@@ -141,6 +147,7 @@ select pg_temp.check((select count(*) = 1 from anon_authors), 'author sees own a
 update messages set body = 'עריכה אנונימית' where body = 'הודעה אנונימית';
 select pg_temp.check((select count(*) = 1 from messages where body = 'עריכה אנונימית'), 'anonymous author can edit own message');
 insert into reactions (message_id, user_id, emoji) select id, auth.uid(), '😊' from messages where body = 'עריכה אנונימית';
+select pg_temp.denied($$insert into message_likes (message_id, user_id) select id, auth.uid() from messages where body = 'עריכה אנונימית'$$, 'cannot like own anonymous message');
 reset role;
 
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
@@ -148,6 +155,7 @@ select pg_temp.check((select count(*) = 0 from anon_authors), 'others cannot see
 update messages set body = 'hijack' where body = 'עריכה אנונימית';
 select pg_temp.check((select count(*) = 1 from messages where body = 'עריכה אנונימית'), 'others cannot edit anonymous message');
 insert into reactions (message_id, user_id) select id, auth.uid() from messages where body = 'עריכה אנונימית';
+insert into message_likes (message_id, user_id) select id, auth.uid() from messages where body = 'עריכה אנונימית';
 select pg_temp.check((select reputation = 0 from member_stats() where id = '00000000-0000-0000-0000-00000000000c'), 'anonymous content earns no reputation (no leak)');
 reset role;
 
