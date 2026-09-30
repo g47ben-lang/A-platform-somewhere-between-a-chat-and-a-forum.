@@ -1,5 +1,7 @@
 -- =====================================================================
--- Community chat schema for Supabase (v6).
+-- קובץ 1 מתוך 2: schema.sql — מבנה מסד הנתונים והרשאות. מריצים אחרי כל עדכון של האתר.
+-- בטוח להריץ שוב ושוב: לא מוחק שום מידע.
+-- Community chat schema for Supabase (latest version).
 -- Run in the Supabase dashboard: SQL Editor -> New query -> paste -> Run.
 -- Idempotent: safe to re-run. Upgrades v1/v2 installs in place without losing data
 -- (v2 threads are converted into chat messages inside their room).

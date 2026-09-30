@@ -1,3 +1,7 @@
+-- =====================================================================
+-- קובץ 2 מתוך 2: email-setup.sql — הפעלה אוטומטית של מיילים, התראות והודעות מתוזמנות.
+-- מריצים פעם אחת (ושוב רק כשמבקשים). בטוח להריץ שוב: רק מעדכן את התזמונים, לא נוגע במידע.
+-- =====================================================================
 -- Run ONCE in the Supabase SQL Editor, after deploying the Edge Function "send-emails"
 -- (see README: "התראות במייל"). Calls the function every 5 minutes. Safe to re-run.
 create extension if not exists pg_cron with schema pg_catalog;
