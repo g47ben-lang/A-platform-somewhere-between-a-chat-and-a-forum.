@@ -24,11 +24,17 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run build
+      # Supabase URL/key come from .env.production. An empty env var would override the file,
+      # so optional repo Variables are exported only when set.
+      - run: |
+          [ -n "$SITE_NAME" ] && export VITE_SITE_NAME="$SITE_NAME"
+          [ -n "$SB_URL" ] && export VITE_SUPABASE_URL="$SB_URL"
+          [ -n "$SB_KEY" ] && export VITE_SUPABASE_ANON_KEY="$SB_KEY"
+          npm run build
         env:
-          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
-          VITE_SITE_NAME: ${{ vars.VITE_SITE_NAME }}
+          SITE_NAME: ${{ vars.VITE_SITE_NAME }}
+          SB_URL: ${{ vars.VITE_SUPABASE_URL }}
+          SB_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

@@ -7,7 +7,7 @@ Closed community site (~300 members), UI in Hebrew (RTL). Channels -> threads (f
 - Backend: Supabase only (Postgres + Auth + Realtime). No custom server. Supabase auth uses PKCE (`src/supabase.ts`) because the hash belongs to the router.
 - All authorization lives in `supabase/schema.sql` (RLS policies + guard triggers). The UI just hides buttons; never rely on it for security.
 - Global state (session, own profile, all profiles, channels, presence) in `src/AppContext.tsx`.
-- Deploy: `.github/workflows/deploy.yml` builds on push to `main` with repo Variables `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_SITE_NAME`.
+- Deploy: `.github/workflows/deploy.yml` builds on push to `main`. Supabase URL + publishable key live in `.env.production` (public by design); optional repo Variable `VITE_SITE_NAME`. Never commit the `sb_secret_` key.
 
 ## Checks before pushing
 - `npm run build` (typecheck + bundle)

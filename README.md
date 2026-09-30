@@ -44,17 +44,18 @@
   - אם רוצים אימות מייל ואיפוס סיסמה במייל, צריך לחבר שירות SMTP. [Resend](https://resend.com) חינמי עד 3,000 מיילים בחודש. מגדירים אותו ב-**Authentication ← Emails ← SMTP Settings**.
 - **URL Configuration:** ב-**Site URL** שמים את כתובת האתר (שלב 5). את אותה כתובת מוסיפים גם ל-**Redirect URLs**.
 
-### 4. חיבור GitHub ל-Supabase
-1. ב-Supabase: **Project Settings ← API**. מעתיקים את **Project URL** ואת **anon / publishable key**. המפתח הזה ציבורי מטבעו, ומותר שיופיע באתר.
-2. ב-GitHub, בדף הריפו: **Settings ← Secrets and variables ← Actions ← לשונית Variables ← New repository variable**. יוצרים:
-   - `VITE_SUPABASE_URL` עם ה-Project URL
-   - `VITE_SUPABASE_ANON_KEY` עם המפתח
-   - `VITE_SITE_NAME` (לא חובה) עם שם הקהילה שיוצג באתר
+### 4. חיבור האתר ל-Supabase
+כתובת הפרויקט והמפתח הציבורי (`sb_publishable_...`) שמורים בקובץ [`.env.production`](.env.production). המפתח הזה נועד להיות גלוי, וההגנה על הנתונים נעשית במסד הנתונים.
+
+> ⚠️ את מפתח ה-**Secret** (`sb_secret_...`) לא מכניסים לריפו ולא לאתר, לעולם. הוא עוקף את כל ההרשאות.
+
+כדי לשנות את שם הקהילה שמוצג באתר: ב-GitHub נכנסים ל-**Settings ← Secrets and variables ← Actions ← Variables** ויוצרים משתנה בשם `VITE_SITE_NAME`.
 
 ### 5. העלאת האתר לאוויר
-1. ב-GitHub: **Settings ← Pages ← Source: GitHub Actions**.
-2. כל עדכון שנכנס לענף `main` מעלה את האתר אוטומטית. אפשר גם להפעיל ידנית: **Actions ← Deploy to GitHub Pages ← Run workflow**.
-3. כתובת האתר תהיה בערך כך: `https://g47ben-lang.github.io/<שם-הריפו>/`
+1. ב-GitHub: **Settings ← General ← Default branch**. מגדירים את `main` כענף ברירת המחדל.
+2. ב-GitHub: **Settings ← Pages ← Source: GitHub Actions**.
+3. כל עדכון שנכנס לענף `main` מעלה את האתר אוטומטית. אפשר גם להפעיל ידנית: **Actions ← Deploy to GitHub Pages ← Run workflow**.
+4. כתובת האתר: https://g47ben-lang.github.io/A-platform-somewhere-between-a-chat-and-a-forum./
 
 ### 6. כניסה ראשונה
 נכנסים לאתר ונרשמים. **המשתמש הראשון הופך למנהל.** אחר כך שולחים את הקישור לחברי הקהילה, ומאשרים אותם בדף **⚙️ ניהול**. יש שם גם כפתור "אישור כולם".
