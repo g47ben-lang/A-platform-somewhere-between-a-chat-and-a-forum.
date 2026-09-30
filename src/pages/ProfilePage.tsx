@@ -90,7 +90,7 @@ export default function ProfilePage() {
 
   return (
     <div className="pane scroll-pane">
-      <div className="page">
+      <div className="page narrow-page">
         <section className="profile-card">
           <Avatar id={profile.id} name={profile.display_name} size={96} online={online.has(profile.id)} />
           <div className="profile-main">
@@ -108,7 +108,7 @@ export default function ProfilePage() {
               ) : (
                 <>
                   <button className="btn filled" onClick={() => message(false)}><Icon name="chat" size={18} /> שליחת הודעה</button>
-                  {profile.accept_anonymous && (
+                  {profile.accept_anonymous && me?.can_send_anonymous && (
                     <button className="btn tonal" onClick={() => message(true)}><Icon name="visibility_off" size={18} /> הודעה אנונימית</button>
                   )}
                 </>
@@ -138,11 +138,11 @@ export default function ProfilePage() {
             {level.next ? `עוד ${level.next - (stats?.reputation ?? 0)} נקודות לדרגה הבאה` : 'הדרגה הגבוהה ביותר'}
           </div>
           <div className="stat-row">
-            <Stat label="שרשורים" value={stats?.threads} />
-            <Stat label="תשובות" value={stats?.replies} />
+            <Stat label="הודעות" value={stats?.messages} />
             <Stat label="לייקים שהתקבלו" value={stats?.likes} />
+            <Stat label="דירוג בקהילה" value={rank ?? undefined} prefix="#" />
           </div>
-          <p className="muted small rep-explain">כל לייק שמתקבל = 5 נקודות, כל שרשור = 2, כל תשובה = 1. תוכן אנונימי לא נספר.</p>
+          <p className="muted small rep-explain">כל לייק שמתקבל = 5 נקודות, כל הודעה = נקודה אחת. תוכן אנונימי לא נספר.</p>
         </section>
 
         <section className="wall">
@@ -151,7 +151,7 @@ export default function ProfilePage() {
           {!isMe && (
             <Composer
               placeholder={`כתיבת הודעה ציבורית ל${profile.display_name}`}
-              allowAnonymous={profile.accept_anonymous}
+              allowAnonymous={profile.accept_anonymous && !!me?.can_send_anonymous}
               onSend={postWall}
               maxLength={2000}
             />
@@ -186,10 +186,10 @@ export default function ProfilePage() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: number | undefined }) {
+function Stat({ label, value, prefix = '' }: { label: string; value: number | undefined; prefix?: string }) {
   return (
     <div className="stat">
-      <div className="stat-value">{value ?? '–'}</div>
+      <div className="stat-value">{value === undefined ? '–' : prefix + value}</div>
       <div className="stat-label">{label}</div>
     </div>
   );

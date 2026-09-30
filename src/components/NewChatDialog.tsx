@@ -36,13 +36,15 @@ export default function NewChatDialog({ onClose, initialAnonymous = false }: { o
         <Icon name="search" />
         <input autoFocus placeholder="חיפוש לפי שם" value={filter} onChange={(e) => setFilter(e.target.value)} />
       </div>
-      <label className="switch-row">
-        <span>
-          <strong>שליחה בעילום שם</strong>
-          <span className="muted small">הנמען לא יראה מי שלח את ההודעות.</span>
-        </span>
-        <input type="checkbox" className="switch" checked={anonymous} onChange={(e) => setAnonymous(e.target.checked)} />
-      </label>
+      {me?.can_send_anonymous && (
+        <label className="switch-row">
+          <span>
+            <strong>שליחה בעילום שם</strong>
+            <span className="muted small">הנמען לא יראה מי שלח את ההודעות.</span>
+          </span>
+          <input type="checkbox" className="switch" checked={anonymous} onChange={(e) => setAnonymous(e.target.checked)} />
+        </label>
+      )}
       <ul className="pick-list">
         {list.map((p) => {
           const blocked = anonymous && !p.accept_anonymous;

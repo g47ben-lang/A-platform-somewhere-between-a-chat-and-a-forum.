@@ -1,9 +1,9 @@
-import type { ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { useMemo, type ReactNode } from 'react';
 import { useApp } from '../AppContext';
 import { clockTime, fullDate } from '../lib/format';
 import Avatar from './Avatar';
 import Icon, { type IconName } from './Icon';
+import { useProfileCard } from './ProfileCard';
 import RichText from './RichText';
 
 export interface RowAction {
@@ -21,54 +21,48 @@ interface Props {
   createdAt: string;
   editedAt?: string | null;
   deleted?: boolean;
-  title?: string | null;
   body: string | null;
   grouped?: boolean;
   quote?: ReactNode;
   footer?: ReactNode;
   actions?: RowAction[];
   highlight?: boolean;
-  onClick?: () => void;
 }
 
-export default function MessageRow({
-  authorId, anonymous, mine, createdAt, editedAt, deleted, title, body, grouped, quote, footer, actions, highlight, onClick,
-}: Props) {
-  const { profiles, online, nameOf } = useApp();
+export default function MessageRow({ authorId, anonymous, mine, createdAt, editedAt, deleted, body, grouped, quote, footer, actions, highlight }: Props) {
+  const { profiles, online, nameOf, me } = useApp();
+  const openCard = useProfileCard();
   const author = authorId ? profiles.get(authorId) : undefined;
   const isAnon = anonymous || !authorId;
-
-  const name = isAnon ? (
-    <span className="author anon-author">אנונימי{mine && <span className="you-tag">שלך</span>}</span>
-  ) : (
-    <Link to={`/u/${authorId}`} className="author">{nameOf(authorId)}</Link>
-  );
+  const names = useMemo(() => [...profiles.values()].filter((p) => p.status === 'active').map((p) => p.display_name), [profiles]);
+  const mentionsMe = !!me && !!body && !mine && body.includes(`@${me.display_name}`);
 
   return (
-    <div className={`row-msg ${grouped ? 'grouped' : ''} ${highlight ? 'highlight' : ''} ${onClick ? 'clickable' : ''}`} onClick={onClick}>
+    <div className={`row-msg ${grouped ? 'grouped' : ''} ${highlight ? 'highlight' : ''} ${mentionsMe ? 'mentioned' : ''}`}>
       <div className="row-gutter">
         {grouped ? (
           <span className="row-hover-time">{clockTime(createdAt)}</span>
         ) : isAnon ? (
           <Avatar anonymous size={36} />
         ) : (
-          <Link to={`/u/${authorId}`} onClick={(e) => e.stopPropagation()} tabIndex={-1}>
+          <button className="avatar-link" onClick={(e) => openCard(authorId!, e.currentTarget)} aria-label={nameOf(authorId)}>
             <Avatar id={authorId} name={author?.display_name} size={36} online={online.has(authorId!)} />
-          </Link>
+          </button>
         )}
       </div>
       <div className="row-main">
         {!grouped && (
           <div className="row-head">
-            {name}
-            {author && author.role !== 'member' && (
-              <span className="role-tag">{author.role === 'admin' ? 'מנהל/ת' : 'מנחה'}</span>
+            {isAnon ? (
+              <span className="author anon-author">אנונימי{mine && <span className="you-tag">שלך</span>}</span>
+            ) : (
+              <button className="author" onClick={(e) => openCard(authorId!, e.currentTarget)}>{nameOf(authorId)}</button>
             )}
+            {author && author.role !== 'member' && <span className="role-tag">{author.role === 'admin' ? 'מנהל/ת' : 'מנחה'}</span>}
             <time className="row-time" title={fullDate(createdAt)}>{clockTime(createdAt)}</time>
           </div>
         )}
         {quote}
-        {title && !deleted && <div className="row-title">{title}</div>}
         {deleted ? (
           <div className="row-body deleted">
             <Icon name="block" size={16} /> ההודעה נמחקה
@@ -76,7 +70,7 @@ export default function MessageRow({
         ) : (
           body && (
             <div className="row-body">
-              <RichText text={body} />
+              <RichText text={body} names={names} myName={me?.display_name} />
               {editedAt && <span className="edited">(נערך)</span>}
             </div>
           )
@@ -84,7 +78,7 @@ export default function MessageRow({
         {footer}
       </div>
       {actions && actions.length > 0 && !deleted && (
-        <div className="row-actions" onClick={(e) => e.stopPropagation()}>
+        <div className="row-actions">
           {actions.map((a) => (
             <button
               key={a.label}
@@ -111,19 +105,16 @@ export function DaySeparator({ label }: { label: string }) {
 }
 
 export function LikeChip({ count, liked, onClick, disabled }: { count: number; liked: boolean; onClick: () => void; disabled?: boolean }) {
-  if (count === 0 && disabled) return null;
+  if (count === 0) return null;
   return (
     <button
       className={`like-chip ${liked ? 'on' : ''}`}
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick();
-      }}
+      onClick={onClick}
       disabled={disabled}
-      title={disabled ? 'אי אפשר לסמן לייק לתוכן שלך' : liked ? 'ביטול לייק' : 'לייק'}
+      title={disabled ? 'אי אפשר לסמן לייק להודעה שלך' : liked ? 'ביטול לייק' : 'לייק'}
     >
       <Icon name="thumb_up" filled={liked} size={16} />
-      {count > 0 && <span>{count}</span>}
+      <span>{count}</span>
     </button>
   );
 }

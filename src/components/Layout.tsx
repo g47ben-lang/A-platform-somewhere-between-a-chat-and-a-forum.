@@ -6,6 +6,7 @@ import type { Conversation } from '../types';
 import Avatar, { SpaceTile } from './Avatar';
 import Icon from './Icon';
 import NewChatDialog from './NewChatDialog';
+import RoomDialog from './RoomDialog';
 
 export function useConversationTitle() {
   const { nameOf } = useApp();
@@ -13,10 +14,11 @@ export function useConversationTitle() {
 }
 
 export default function Layout() {
-  const { me, channels, conversations, online, isAdmin, profiles } = useApp();
+  const { me, rooms, mainRoom, conversations, online, isAdmin, profiles } = useApp();
   const [drawer, setDrawer] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [newChat, setNewChat] = useState(false);
+  const [newRoom, setNewRoom] = useState(false);
   const [menu, setMenu] = useState(false);
   const [q, setQ] = useState('');
   const location = useLocation();
@@ -25,7 +27,8 @@ export default function Layout() {
   const menuRef = useRef<HTMLDivElement>(null);
 
   const pendingCount = isAdmin ? [...profiles.values()].filter((p) => p.status === 'pending').length : 0;
-  const unreadTotal = conversations.reduce((n, c) => n + c.unread, 0);
+  const topicRooms = rooms.filter((r) => !r.is_main);
+  const unreadTotal = conversations.reduce((n, c) => n + c.unread, 0) + rooms.reduce((n, r) => n + r.unread, 0);
 
   useEffect(() => {
     setDrawer(false);
@@ -61,6 +64,7 @@ export default function Layout() {
           onClick={() => (window.innerWidth <= 900 ? setDrawer(true) : setCollapsed((c) => !c))}
         >
           <Icon name="menu" />
+          {unreadTotal > 0 && <span className="menu-dot" />}
         </button>
         <Link to="/" className="brand">
           <span className="brand-mark"><Icon name="forum" filled size={22} /></span>
@@ -82,6 +86,9 @@ export default function Layout() {
               </div>
               <Link to={`/u/${me.id}`} className="menu-item"><Icon name="person" /> הפרופיל שלי</Link>
               <Link to="/settings" className="menu-item"><Icon name="settings" /> הגדרות</Link>
+              {isAdmin && (
+                <Link to="/admin" className="menu-item"><Icon name="admin_panel_settings" /> ניהול הקהילה</Link>
+              )}
               <button className="menu-item" onClick={() => supabase.auth.signOut()}><Icon name="logout" /> התנתקות</button>
             </div>
           )}
@@ -95,32 +102,47 @@ export default function Layout() {
         </button>
 
         <nav className="nav">
-          <NavLink to="/" end className="nav-item">
+          <NavLink to="/" end className={`nav-item ${mainRoom && mainRoom.unread > 0 ? 'unread' : ''}`}>
             <Icon name="home" />
-            <span className="nav-label">דף הבית</span>
+            <span className="nav-label">הצ'אט הראשי</span>
+            {mainRoom && mainRoom.unread > 0 && <span className="badge-count">{badge(mainRoom.unread)}</span>}
           </NavLink>
-          <NavLink to="/members" className="nav-item">
-            <Icon name="group" />
-            <span className="nav-label">חברי הקהילה</span>
-            <span className="nav-meta">{online.size > 0 ? `${online.size} מחוברים` : ''}</span>
-          </NavLink>
-          {isAdmin && (
+          {isAdmin && pendingCount > 0 && (
             <NavLink to="/admin" className="nav-item">
               <Icon name="admin_panel_settings" />
-              <span className="nav-label">ניהול</span>
-              {pendingCount > 0 && <span className="badge-count">{pendingCount}</span>}
+              <span className="nav-label">ממתינים לאישור</span>
+              <span className="badge-count">{pendingCount}</span>
             </NavLink>
           )}
         </nav>
 
         <div className="nav-section">
           <div className="nav-heading">
-            <span>צ'אט</span>
+            <span>חדרים</span>
+            <button className="icon-btn small" onClick={() => setNewRoom(true)} aria-label="חדר חדש" title="פתיחת חדר חדש">
+              <Icon name="add" size={20} />
+            </button>
+          </div>
+          {topicRooms.length === 0 && (
+            <button className="nav-empty link-like" onClick={() => setNewRoom(true)}>פתיחת חדר לנושא מסוים</button>
+          )}
+          {topicRooms.map((r) => (
+            <NavLink key={r.id} to={`/room/${r.id}`} className={`nav-item ${r.unread > 0 ? 'unread' : ''}`}>
+              <SpaceTile name={r.name} size={24} announce={r.admin_only_post} />
+              <span className="nav-label">{r.name}</span>
+              {r.unread > 0 && <span className="badge-count">{badge(r.unread)}</span>}
+            </NavLink>
+          ))}
+        </div>
+
+        <div className="nav-section">
+          <div className="nav-heading">
+            <span>צ'אט אישי</span>
             <button className="icon-btn small" onClick={() => setNewChat(true)} aria-label="צ'אט חדש" title="צ'אט חדש">
               <Icon name="add" size={20} />
             </button>
           </div>
-          {conversations.length === 0 && <div className="nav-empty">אין עדיין שיחות</div>}
+          {conversations.length === 0 && <div className="nav-empty">לחיצה על שם של חבר/ה פותחת שיחה אישית</div>}
           {conversations.map((c) => (
             <NavLink key={c.id} to={`/dm/${c.id}`} className={`nav-item ${c.unread > 0 ? 'unread' : ''}`}>
               <Avatar id={c.other_id} name={convTitle(c)} size={24} anonymous={!c.other_id} online={!!c.other_id && online.has(c.other_id)} />
@@ -130,17 +152,7 @@ export default function Layout() {
                   <Icon name="visibility_off" size={12} /> אנונימי
                 </span>
               )}
-              {c.unread > 0 && <span className="badge-count">{c.unread}</span>}
-            </NavLink>
-          ))}
-        </div>
-
-        <div className="nav-section">
-          <div className="nav-heading"><span>מרחבים</span></div>
-          {channels.map((c) => (
-            <NavLink key={c.id} to={`/space/${c.id}`} className="nav-item">
-              <SpaceTile name={c.name} size={24} announce={c.admin_only_post} />
-              <span className="nav-label">{c.name}</span>
+              {c.unread > 0 && <span className="badge-count">{badge(c.unread)}</span>}
             </NavLink>
           ))}
         </div>
@@ -153,6 +165,9 @@ export default function Layout() {
       </main>
 
       {newChat && <NewChatDialog onClose={() => setNewChat(false)} />}
+      {newRoom && <RoomDialog onClose={() => setNewRoom(false)} />}
     </div>
   );
 }
+
+const badge = (n: number) => (n > 99 ? '99+' : String(n));

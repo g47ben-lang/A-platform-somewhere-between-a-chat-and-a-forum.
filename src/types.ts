@@ -8,34 +8,28 @@ export interface Profile {
   role: MemberRole;
   bio: string | null;
   accept_anonymous: boolean;
+  can_send_anonymous: boolean;
   created_at: string;
 }
 
-export interface Channel {
+/** A chat room as returned by my_rooms(). */
+export interface Room {
   id: number;
   name: string;
   description: string | null;
-  position: number;
+  is_main: boolean;
   admin_only_post: boolean;
-}
-
-export interface Thread {
-  id: number;
-  channel_id: number;
-  author_id: string | null;
-  anonymous: boolean;
-  title: string | null;
-  body: string | null;
-  pinned: boolean;
-  locked: boolean;
-  message_count: number;
-  created_at: string;
-  last_activity_at: string;
+  created_by: string | null;
+  last_message_at: string;
+  unread: number;
+  last_body: string | null;
+  last_author: string | null;
+  last_anonymous: boolean | null;
 }
 
 export interface Message {
   id: number;
-  thread_id: number;
+  channel_id: number;
   author_id: string | null;
   anonymous: boolean;
   reply_to: number | null;
@@ -78,8 +72,7 @@ export interface DmMessage {
 
 export interface MemberStats {
   id: string;
-  threads: number;
-  replies: number;
+  messages: number;
   likes: number;
   reputation: number;
 }

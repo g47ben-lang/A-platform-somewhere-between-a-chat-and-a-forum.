@@ -37,19 +37,21 @@ end $$;
 
 set client_min_messages = notice;
 
+select pg_temp.check((select count(*) = 1 from channels where is_main), 'fresh install has exactly one main room');
+
 -- ===== Membership =====
 select pg_temp.check((select role = 'admin' and status = 'active' from profiles where id = '00000000-0000-0000-0000-00000000000a'), 'first user is active admin');
 select pg_temp.check((select status = 'pending' from profiles where id = '00000000-0000-0000-0000-00000000000b'), 'second user pending');
 select pg_temp.check((select display_name = 'carol' from profiles where id = '00000000-0000-0000-0000-00000000000c'), 'display name falls back to email prefix');
 
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
-select pg_temp.check((select count(*) = 0 from channels), 'pending user cannot read spaces');
+select pg_temp.check((select count(*) = 0 from channels), 'pending user cannot read rooms');
 select pg_temp.check((select count(*) = 1 from profiles), 'pending user sees only own profile');
 update profiles set status = 'active', role = 'admin' where id = '00000000-0000-0000-0000-00000000000b';
 select pg_temp.check((select status = 'pending' and role = 'member' from profiles where id = '00000000-0000-0000-0000-00000000000b'), 'pending user cannot self-approve/promote');
 update profiles set display_name = 'בוב החדש', bio = 'שלום' where id = '00000000-0000-0000-0000-00000000000b';
-select pg_temp.check((select display_name = 'בוב החדש' and bio = 'שלום' from profiles where id = '00000000-0000-0000-0000-00000000000b'), 'user can edit own profile');
-select pg_temp.denied($$select create_thread(2, 'x', 'y')$$, 'pending user cannot post');
+select pg_temp.check((select display_name = 'בוב החדש' and bio = 'שלום' from profiles where id = '00000000-0000-0000-0000-00000000000b'), 'user can edit own name and bio');
+select pg_temp.denied($$select send_message((select id from channels where is_main), 'x')$$, 'pending user cannot post');
 reset role;
 
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
@@ -58,77 +60,92 @@ update profiles set display_name = 'hacked' where id = '00000000-0000-0000-0000-
 select pg_temp.check((select status = 'active' and display_name = 'בוב החדש' from profiles where id = '00000000-0000-0000-0000-00000000000b'), 'admin approves but cannot rename others');
 reset role;
 
--- ===== Spaces, threads, replies =====
+-- ===== Main room chat =====
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
-select pg_temp.check((select count(*) = 3 from channels), 'member sees spaces');
-select pg_temp.denied($$insert into channels (name) values ('hack')$$, 'member cannot create space');
-select pg_temp.denied($$select create_thread((select id from channels where admin_only_post), 't', 'b')$$, 'member cannot post in announcements');
-select pg_temp.denied($$insert into threads (channel_id, author_id, title) values (2, auth.uid(), 'direct')$$, 'direct thread insert is blocked');
-select create_thread((select id from channels where name = 'כללי'), 'שלום לכולם', 'פתיחה');
-select pg_temp.denied($$insert into messages (thread_id, author_id, body) values (1, auth.uid(), 'direct')$$, 'direct reply insert is blocked');
-select post_message((select id from threads where title = 'שלום לכולם'), 'תגובה ראשונה');
-select post_message((select id from threads where title = 'שלום לכולם'), 'שנייה', (select id from messages where body = 'תגובה ראשונה'));
-select pg_temp.check((select message_count = 2 from threads where id = (select id from threads where title = 'שלום לכולם')), 'reply counter bumped');
-select pg_temp.check((select reply_to = (select id from messages where body = 'תגובה ראשונה') from messages where body = 'שנייה'), 'reply_to kept within thread');
-delete from threads where id = (select id from threads where title = 'שלום לכולם');
-select pg_temp.check((select count(*) = 1 from threads), 'author cannot delete thread that has replies');
-update threads set pinned = true, locked = true, message_count = 999 where id = (select id from threads where title = 'שלום לכולם');
-select pg_temp.check((select not pinned and not locked and message_count = 2 from threads where id = (select id from threads where title = 'שלום לכולם')), 'member cannot pin/lock or fake counters');
-update messages set body = 'ערוך' where body = 'שנייה';
+select pg_temp.denied($$insert into messages (channel_id, author_id, body) values ((select id from channels where is_main), auth.uid(), 'direct')$$, 'direct message insert is blocked');
+select send_message((select id from channels where is_main), 'שלום לכולם');
+select send_message((select id from channels where is_main), 'תשובה', (select id from messages where body = 'שלום לכולם'));
+select pg_temp.check((select reply_to is not null from messages where body = 'תשובה'), 'quote reply kept');
+update messages set body = 'ערוך' where body = 'תשובה';
 select pg_temp.check((select edited_at is not null from messages where body = 'ערוך'), 'edit sets edited_at');
+delete from channels where is_main;
+select pg_temp.check((select count(*) = 1 from channels where is_main), 'member cannot delete main room');
+update channels set name = 'hack' where is_main;
+select pg_temp.check((select name <> 'hack' from channels where is_main), 'member cannot rename main room');
+reset role;
+
+-- ===== Rooms =====
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000c');
+select create_room('טיול שנתי', 'תיאום הטיול');
+select pg_temp.check((select created_by = auth.uid() and not is_main from channels where name = 'טיול שנתי'), 'member can open a room');
+update channels set name = 'טיול שנתי 2026', admin_only_post = true, is_main = true where name = 'טיול שנתי';
+select pg_temp.check((select not admin_only_post and not is_main from channels where name = 'טיול שנתי 2026'), 'creator renames room but cannot make it main/announcement');
+select send_message((select id from channels where name = 'טיול שנתי 2026'), 'מי מגיע?');
+reset role;
+
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+update channels set name = 'hijack' where name = 'טיול שנתי 2026';
+select pg_temp.check((select count(*) = 1 from channels where name = 'טיול שנתי 2026'), 'others cannot rename a room');
+delete from channels where name = 'טיול שנתי 2026';
+select pg_temp.check((select count(*) = 1 from channels where name = 'טיול שנתי 2026'), 'others cannot delete a room');
+select pg_temp.check((select unread = 1 from my_rooms() where name = 'טיול שנתי 2026'), 'unread counted per room');
+select mark_room_read((select id from channels where name = 'טיול שנתי 2026'));
+select pg_temp.check((select unread = 0 from my_rooms() where name = 'טיול שנתי 2026'), 'mark read clears unread');
+select pg_temp.check((select is_main from my_rooms() limit 1), 'main room listed first');
+reset role;
+
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+update channels set admin_only_post = true where name = 'טיול שנתי 2026';
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select pg_temp.denied($$select send_message((select id from channels where name = 'טיול שנתי 2026'), 'x')$$, 'announcement room rejects members');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000c');
+delete from channels where name = 'טיול שנתי 2026';
+select pg_temp.check((select count(*) = 0 from channels where name = 'טיול שנתי 2026'), 'creator can delete own room');
 reset role;
 
 -- ===== Likes & reputation =====
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
-select pg_temp.denied($$insert into reactions (message_id, user_id) values ((select id from messages where body = 'תגובה ראשונה'), auth.uid())$$, 'cannot like own reply');
-select pg_temp.denied($$insert into thread_likes (thread_id, user_id) values ((select id from threads where title = 'שלום לכולם'), auth.uid())$$, 'cannot like own thread');
+select pg_temp.denied($$insert into reactions (message_id, user_id) values ((select id from messages where body = 'שלום לכולם'), auth.uid())$$, 'cannot like own message');
 reset role;
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000c');
-insert into reactions (message_id, user_id) values ((select id from messages where body = 'תגובה ראשונה'), auth.uid());
-insert into thread_likes (thread_id, user_id) values ((select id from threads where title = 'שלום לכולם'), auth.uid());
-select pg_temp.denied($$insert into reactions (message_id, user_id) values ((select id from messages where body = 'תגובה ראשונה'), '00000000-0000-0000-0000-00000000000d')$$, 'cannot like on behalf of others');
--- bob: 1 thread, 2 replies, 2 likes -> 2*5 + 1*2 + 2 = 14
-select pg_temp.check((select reputation = 14 and likes = 2 from member_stats() where id = '00000000-0000-0000-0000-00000000000b'), 'reputation computed');
+insert into reactions (message_id, user_id) values ((select id from messages where body = 'שלום לכולם'), auth.uid());
+select pg_temp.denied($$insert into reactions (message_id, user_id) values ((select id from messages where body = 'שלום לכולם'), '00000000-0000-0000-0000-00000000000d')$$, 'cannot like on behalf of others');
+-- bob: 2 messages, 1 like -> 1*5 + 2 = 7
+select pg_temp.check((select reputation = 7 and likes = 1 from member_stats() where id = '00000000-0000-0000-0000-00000000000b'), 'reputation computed');
 reset role;
 
 -- ===== Moderation =====
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
 update messages set body = 'rewritten' where body = 'ערוך';
-select pg_temp.check((select count(*) = 1 from messages where body = 'ערוך'), 'mod cannot rewrite others reply');
-update threads set title = 'rewritten' where id = (select id from threads where title = 'שלום לכולם');
-select pg_temp.check((select count(*) = 1 from threads where title = 'שלום לכולם'), 'mod cannot rewrite others thread');
+select pg_temp.check((select count(*) = 1 from messages where body = 'ערוך'), 'mod cannot rewrite others message');
 update messages set deleted = true where body = 'ערוך';
-select pg_temp.check((select deleted and body = '' from messages where id = (select id from messages where body in ('שנייה','ערוך','') and not anonymous)), 'mod soft delete wipes body');
-update threads set locked = true, pinned = true where id = (select id from threads where title = 'שלום לכולם');
-select pg_temp.check((select locked and pinned from threads where id = (select id from threads where title = 'שלום לכולם')), 'mod can pin/lock');
-select pg_temp.check((select count(*) = 0 from thread_reads), 'thread_reads are private');
+select pg_temp.check((select deleted and body = '' from messages where reply_to is not null and channel_id = (select id from channels where is_main)), 'mod soft delete wipes body');
 delete from reactions;
 select pg_temp.check((select count(*) = 1 from reactions), 'cannot remove others likes');
+select pg_temp.check((select count(*) = 0 from channel_reads where user_id <> auth.uid()), 'read markers are private');
 reset role;
-
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
-select pg_temp.denied($$select post_message((select id from threads where title = 'שלום לכולם'), 'x')$$, 'member cannot reply in locked thread');
-update messages set deleted = false, body = 'back' where id = (select id from messages where body in ('שנייה','ערוך','') and not anonymous);
-select pg_temp.check((select deleted and body = '' from messages where id = (select id from messages where body in ('שנייה','ערוך','') and not anonymous)), 'deleted reply stays deleted');
+update messages set deleted = false, body = 'back' where deleted;
+select pg_temp.check((select count(*) = 0 from messages where body = 'back'), 'deleted message stays deleted');
 reset role;
 
--- ===== Anonymous posts =====
+-- ===== Anonymous room messages =====
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000c');
-select create_thread(2, null, 'שאלה אנונימית', true);
-select post_message((select id from threads where body = 'שאלה אנונימית'), 'תגובה אנונימית', null, true);
-select pg_temp.check((select author_id is null and anonymous from threads where body = 'שאלה אנונימית'), 'anonymous thread stores no author');
-select pg_temp.check((select author_id is null and anonymous from messages where thread_id = (select id from threads where body = 'שאלה אנונימית')), 'anonymous reply stores no author');
-select pg_temp.check((select count(*) = 2 from anon_authors), 'author sees own anonymous items');
-update messages set body = 'עריכה אנונימית' where thread_id = (select id from threads where body = 'שאלה אנונימית');
-select pg_temp.check((select body = 'עריכה אנונימית' from messages where thread_id = (select id from threads where body = 'שאלה אנונימית')), 'anonymous author can edit own reply');
-select pg_temp.denied($$insert into reactions (message_id, user_id) select id, auth.uid() from messages where thread_id = (select id from threads where body = 'שאלה אנונימית')$$, 'cannot like own anonymous reply');
+select send_message((select id from channels where is_main), 'הודעה אנונימית', null, true);
+select pg_temp.check((select author_id is null and anonymous from messages where body = 'הודעה אנונימית'), 'anonymous message stores no author');
+select pg_temp.check((select count(*) = 1 from anon_authors), 'author sees own anonymous items');
+update messages set body = 'עריכה אנונימית' where body = 'הודעה אנונימית';
+select pg_temp.check((select count(*) = 1 from messages where body = 'עריכה אנונימית'), 'anonymous author can edit own message');
+select pg_temp.denied($$insert into reactions (message_id, user_id) select id, auth.uid() from messages where body = 'עריכה אנונימית'$$, 'cannot like own anonymous message');
 reset role;
 
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
 select pg_temp.check((select count(*) = 0 from anon_authors), 'others cannot see anonymous authorship');
-update messages set body = 'hijack' where thread_id = (select id from threads where body = 'שאלה אנונימית');
-select pg_temp.check((select body = 'עריכה אנונימית' from messages where thread_id = (select id from threads where body = 'שאלה אנונימית')), 'others cannot edit anonymous reply');
-insert into reactions (message_id, user_id) select id, auth.uid() from messages where thread_id = (select id from threads where body = 'שאלה אנונימית');
+update messages set body = 'hijack' where body = 'עריכה אנונימית';
+select pg_temp.check((select count(*) = 1 from messages where body = 'עריכה אנונימית'), 'others cannot edit anonymous message');
+insert into reactions (message_id, user_id) select id, auth.uid() from messages where body = 'עריכה אנונימית';
 select pg_temp.check((select reputation = 0 from member_stats() where id = '00000000-0000-0000-0000-00000000000c'), 'anonymous content earns no reputation (no leak)');
 reset role;
 
@@ -136,43 +153,69 @@ select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
 select pg_temp.check((select count(*) = 0 from anon_authors), 'admins cannot see anonymous authorship');
 reset role;
 
+-- ===== Admin controls anonymity =====
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+update profiles set accept_anonymous = false, can_send_anonymous = false where id = auth.uid();
+select pg_temp.check((select accept_anonymous and can_send_anonymous from profiles where id = auth.uid()), 'members cannot change their own anonymity permissions');
+reset role;
+
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+update profiles set can_send_anonymous = false where id = '00000000-0000-0000-0000-00000000000d';
+update profiles set accept_anonymous = false where id = '00000000-0000-0000-0000-00000000000b';
+select pg_temp.check((select not can_send_anonymous from profiles where id = '00000000-0000-0000-0000-00000000000d'), 'admin sets who may send anonymously');
+reset role;
+
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select pg_temp.denied($$select send_message((select id from channels where is_main), 'x', null, true)$$, 'blocked sender cannot post anonymously in rooms');
+select pg_temp.denied($$select start_dm('00000000-0000-0000-0000-00000000000c', true)$$, 'blocked sender cannot open anonymous DM');
+select pg_temp.denied($$select post_wall('00000000-0000-0000-0000-00000000000c', 'x', true)$$, 'blocked sender cannot post anonymously on walls');
+select send_message((select id from channels where is_main), 'בשמי זה בסדר');
+reset role;
+
 -- ===== Walls =====
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000c');
-select post_wall('00000000-0000-0000-0000-00000000000b', 'כל הכבוד!', false);
-select post_wall('00000000-0000-0000-0000-00000000000b', 'מעריץ סודי', true);
+select post_wall('00000000-0000-0000-0000-00000000000a', 'כל הכבוד!', false);
+select post_wall('00000000-0000-0000-0000-00000000000a', 'מעריץ סודי', true);
+select pg_temp.denied($$select post_wall('00000000-0000-0000-0000-00000000000b', 'x', true)$$, 'recipient blocked by admin: no anonymous wall posts');
 reset role;
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
 select pg_temp.check((select count(*) = 2 and count(author_id) = 1 from wall_posts), 'wall visible; anonymous post hides author');
 delete from wall_posts;
 select pg_temp.check((select count(*) = 2 from wall_posts), 'stranger cannot delete wall posts');
 reset role;
-select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
-update profiles set accept_anonymous = false where id = auth.uid();
-delete from wall_posts where anonymous;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+delete from wall_posts where anonymous and profile_id = auth.uid();
 select pg_temp.check((select count(*) = 1 from wall_posts), 'wall owner can delete posts on their wall');
-reset role;
-select pg_temp.as_user('00000000-0000-0000-0000-00000000000c');
-select pg_temp.denied($$select post_wall('00000000-0000-0000-0000-00000000000b', 'x', true)$$, 'opt-out blocks anonymous wall posts');
 reset role;
 
 -- ===== Direct conversations =====
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000c');
-select pg_temp.denied($$select start_dm('00000000-0000-0000-0000-00000000000b', true)$$, 'opt-out blocks anonymous DMs');
-select pg_temp.check((select start_dm('00000000-0000-0000-0000-00000000000d') = start_dm('00000000-0000-0000-0000-00000000000d')), 'regular DM is reused');
-select send_dm(1, 'היי דייב');
-select pg_temp.check((select start_dm('00000000-0000-0000-0000-00000000000d', true) = start_dm('00000000-0000-0000-0000-00000000000d', true)), 'anonymous DM is reused');
+select pg_temp.denied($$select start_dm('00000000-0000-0000-0000-00000000000b', true)$$, 'recipient blocked by admin: no anonymous DMs');
+select pg_temp.check((select start_dm('00000000-0000-0000-0000-00000000000a') = start_dm('00000000-0000-0000-0000-00000000000a')), 'regular DM is reused');
+select send_dm(1, 'היי');
+select pg_temp.check((select start_dm('00000000-0000-0000-0000-00000000000a', true) = start_dm('00000000-0000-0000-0000-00000000000a', true)), 'anonymous DM is reused');
 select send_dm(2, 'הודעה סודית');
 select pg_temp.check((select sender_id is null from dm_messages where conversation_id = 2), 'anonymous DM stores no sender');
 select pg_temp.check((select count(*) = 2 and bool_and(last_from_me) from my_conversations()), 'sender sees both conversations as theirs');
 reset role;
 
-select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
 select pg_temp.check((select count(*) = 1 from dm_participants where conversation_id = 2), 'recipient cannot see hidden sender');
 select pg_temp.check((select other_id is null and unread = 1 from my_conversations() where id = 2), 'recipient list hides anonymous sender');
-select pg_temp.check((select other_id = '00000000-0000-0000-0000-00000000000c' from my_conversations() where id = 1), 'regular DM shows the other side');
 select send_dm(2, 'מי אתה?');
 select mark_dm_read(2);
 select pg_temp.check((select unread = 0 from my_conversations() where id = 2), 'mark read clears unread');
+-- admin now revokes carol's anonymous sending: the open anonymous chat must stop too
+update profiles set can_send_anonymous = false where id = '00000000-0000-0000-0000-00000000000c';
+reset role;
+
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000c');
+select pg_temp.denied($$select send_dm(2, 'עוד')$$, 'revoked sender cannot continue an open anonymous chat');
+select send_dm(1, 'בשמי עדיין אפשר');
+reset role;
+
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+update profiles set can_send_anonymous = true where id = '00000000-0000-0000-0000-00000000000c';
 select set_dm_closed(2, true);
 reset role;
 
@@ -180,24 +223,25 @@ select pg_temp.as_user('00000000-0000-0000-0000-00000000000c');
 select pg_temp.denied($$select send_dm(2, 'עוד')$$, 'blocked anonymous chat rejects sender');
 select pg_temp.denied($$select set_dm_closed(2, false)$$, 'anonymous sender cannot unblock');
 update dm_messages set deleted = true where conversation_id = 2 and sender_id is null;
-select pg_temp.check((select deleted from dm_messages where conversation_id = 2 and sender_id is null), 'anonymous sender can delete own DM');
+select pg_temp.check((select bool_and(deleted) from dm_messages where conversation_id = 2 and sender_id is null), 'anonymous sender can delete own DM');
 update dm_messages set body = 'x' where conversation_id = 2 and sender_id is not null;
 select pg_temp.check((select body = 'מי אתה?' from dm_messages where conversation_id = 2 and sender_id is not null), 'cannot edit the other side''s DM');
 reset role;
 
-select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
-select pg_temp.check((select count(*) = 0 from dm_messages), 'admins cannot read private conversations');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select pg_temp.check((select count(*) = 0 from dm_messages), 'outsiders cannot read private conversations');
 select pg_temp.denied($$select send_dm(1, 'intrude')$$, 'outsider cannot write into a conversation');
 reset role;
 
 -- ===== Bans =====
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
-update profiles set status = 'banned' where id = '00000000-0000-0000-0000-00000000000d';
+update profiles set status = 'banned' where id = '00000000-0000-0000-0000-00000000000c';
 reset role;
-select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
-select pg_temp.check((select count(*) = 0 from messages), 'banned user cannot read replies');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000c');
+select pg_temp.check((select count(*) = 0 from messages), 'banned user cannot read messages');
 select pg_temp.check((select count(*) = 0 from dm_messages), 'banned user cannot read DMs');
 select pg_temp.denied($$select send_dm(1, 'x')$$, 'banned user cannot send DMs');
+select pg_temp.check((select count(*) = 0 from my_rooms()), 'banned user gets no rooms');
 reset role;
 
 \o

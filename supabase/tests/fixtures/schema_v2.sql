@@ -1,20 +1,17 @@
 -- =====================================================================
--- Community chat schema for Supabase (v3).
+-- Community chat schema for Supabase.
 -- Run in the Supabase dashboard: SQL Editor -> New query -> paste -> Run.
--- Idempotent: safe to re-run. Upgrades v1/v2 installs in place without losing data
--- (v2 threads are converted into chat messages inside their room).
+-- Idempotent: safe to re-run, and upgrades an existing install in place without losing data.
 --
 -- Model:
---   rooms (table `channels`): one main room (is_main) + small topic rooms members create
---   messages: flat live chat per room, with quote-replies and likes
+--   spaces (table `channels`) -> threads (a post in a space) -> messages (replies, live)
 --   direct conversations (dm_*), optionally anonymous on the initiator's side
 --   profile walls (public messages to a member, optionally anonymous)
---   reputation = likes received * 5 + messages sent (anonymous content never counts)
+--   likes on threads/messages feed each member's reputation
 --
 -- Anonymity: anonymous rows store NO author id. The real author is kept in `anon_authors`,
--- readable only by that author. Anonymous DM initiators are hidden via dm_participants.hidden.
--- Admins decide per member who may SEND anonymously (profiles.can_send_anonymous) and who may
--- RECEIVE anonymous messages (profiles.accept_anonymous). Members cannot change these.
+-- readable only by that author (so they can edit/delete their own posts). Anonymous DM
+-- initiators are hidden via dm_participants.hidden. Nothing exposes them to other members.
 --
 -- Access: sign-up creates a *pending* profile; an admin approves it.
 --         The very first user to sign up becomes an active admin automatically.
@@ -39,30 +36,51 @@ create table if not exists profiles (
 );
 alter table profiles add column if not exists bio text;
 alter table profiles add column if not exists accept_anonymous boolean not null default true;
-alter table profiles add column if not exists can_send_anonymous boolean not null default true;
 alter table profiles drop constraint if exists profiles_bio_len;
 alter table profiles add constraint profiles_bio_len check (char_length(bio) <= 500);
 
--- ---------- Rooms ----------
+-- ---------- Spaces ----------
 create table if not exists channels (
   id               bigint generated always as identity primary key,
   name             text not null check (char_length(name) between 1 and 60),
   description      text check (char_length(description) <= 300),
   position         int  not null default 0,
-  admin_only_post  boolean not null default false,  -- announcement rooms: only mods write
+  admin_only_post  boolean not null default false,  -- announcement spaces: only mods start threads
   created_at       timestamptz not null default now()
 );
-alter table channels add column if not exists is_main boolean not null default false;
-alter table channels add column if not exists created_by uuid references profiles on delete set null;
-alter table channels add column if not exists last_message_at timestamptz not null default now();
-create unique index if not exists channels_one_main on channels (is_main) where is_main;
 
--- ---------- Messages ----------
+-- ---------- Threads ----------
+create table if not exists threads (
+  id                bigint generated always as identity primary key,
+  channel_id        bigint not null references channels on delete cascade,
+  author_id         uuid   references profiles on delete cascade,  -- null when anonymous
+  title             text,
+  body              text,
+  pinned            boolean not null default false,
+  locked            boolean not null default false,
+  message_count     int     not null default 0,
+  created_at        timestamptz not null default now(),
+  last_activity_at  timestamptz not null default now()
+);
+alter table threads add column if not exists anonymous boolean not null default false;
+alter table threads alter column author_id drop not null;
+alter table threads alter column title drop not null;
+alter table threads drop constraint if exists threads_title_check;
+alter table threads drop constraint if exists threads_body_check;
+alter table threads drop constraint if exists threads_title_len;
+alter table threads drop constraint if exists threads_body_len;
+alter table threads drop constraint if exists threads_has_content;
+alter table threads add constraint threads_title_len check (title is null or char_length(title) between 1 and 150);
+alter table threads add constraint threads_body_len check (body is null or char_length(body) <= 8000);
+alter table threads add constraint threads_has_content check (title is not null or body is not null);
+create index if not exists threads_channel_activity_idx on threads (channel_id, pinned desc, last_activity_at desc);
+create index if not exists threads_author_idx on threads (author_id);
+
+-- ---------- Replies ----------
 create table if not exists messages (
   id          bigint generated always as identity primary key,
-  channel_id  bigint references channels on delete cascade,
+  thread_id   bigint not null references threads on delete cascade,
   author_id   uuid   references profiles on delete cascade,  -- null when anonymous
-  anonymous   boolean not null default false,
   reply_to    bigint references messages on delete set null,
   body        text   not null,
   deleted     boolean not null default false,
@@ -70,34 +88,20 @@ create table if not exists messages (
   edited_at   timestamptz,
   constraint messages_body_len check (deleted or char_length(body) between 1 and 4000)
 );
-alter table messages add column if not exists channel_id bigint references channels on delete cascade;
 alter table messages add column if not exists anonymous boolean not null default false;
 alter table messages alter column author_id drop not null;
-do $$ begin
-  -- v1/v2 messages belonged to threads
-  if exists (select 1 from information_schema.columns where table_name = 'messages' and column_name = 'thread_id') then
-    alter table messages alter column thread_id drop not null;
-  end if;
-end $$;
-create index if not exists messages_channel_created_idx on messages (channel_id, created_at desc);
+create index if not exists messages_thread_created_idx on messages (thread_id, id desc);
 create index if not exists messages_author_idx on messages (author_id);
-
-create table if not exists channel_reads (
-  user_id       uuid   not null references profiles on delete cascade,
-  channel_id    bigint not null references channels on delete cascade,
-  last_read_at  timestamptz not null default now(),
-  primary key (user_id, channel_id)
-);
 
 -- ---------- Likes ----------
 create table if not exists reactions (
   message_id  bigint not null references messages on delete cascade,
   user_id     uuid   not null references profiles on delete cascade,
-  emoji       text   not null default 'like',
+  emoji       text   not null,
   created_at  timestamptz not null default now(),
   primary key (message_id, user_id, emoji)
 );
--- v1 allowed arbitrary emoji; a single "like" now.
+-- v1 allowed arbitrary emoji; v2 keeps a single "like".
 insert into reactions (message_id, user_id, emoji, created_at)
   select message_id, user_id, 'like', min(created_at) from reactions where emoji <> 'like' group by 1, 2
   on conflict do nothing;
@@ -106,6 +110,20 @@ alter table reactions drop constraint if exists reactions_emoji_check;
 alter table reactions drop constraint if exists reactions_like_only;
 alter table reactions add constraint reactions_like_only check (emoji = 'like');
 alter table reactions alter column emoji set default 'like';
+
+create table if not exists thread_likes (
+  thread_id   bigint not null references threads on delete cascade,
+  user_id     uuid   not null references profiles on delete cascade,
+  created_at  timestamptz not null default now(),
+  primary key (thread_id, user_id)
+);
+
+create table if not exists thread_reads (
+  user_id       uuid   not null references profiles on delete cascade,
+  thread_id     bigint not null references threads on delete cascade,
+  last_read_at  timestamptz not null default now(),
+  primary key (user_id, thread_id)
+);
 
 -- ---------- Anonymous authorship (private) ----------
 create table if not exists anon_authors (
@@ -157,52 +175,6 @@ create table if not exists dm_messages (
 );
 create index if not exists dm_messages_conv_idx on dm_messages (conversation_id, id desc);
 
--- ---------- Main room + v2 thread migration ----------
-do $$
-begin
-  if not exists (select 1 from channels where is_main) then
-    update channels set is_main = true, name = 'הצ''אט הראשי', admin_only_post = false,
-                        description = coalesce(description, 'השיחה של כל הקהילה')
-     where id = (select id from channels order by (name = 'כללי') desc, admin_only_post, position, id limit 1);
-    if not found then
-      insert into channels (name, description, is_main) values ('הצ''אט הראשי', 'השיחה של כל הקהילה', true);
-    end if;
-  end if;
-end $$;
-
--- Each v2 thread becomes a message in its room; its replies become quote-replies to it.
-do $$
-declare
-  t record;
-  new_id bigint;
-begin
-  if to_regclass('public.threads') is null then return; end if;
-  alter table threads add column if not exists migrated_message_id bigint;
-  alter table messages disable trigger user;
-  for t in select * from threads where migrated_message_id is null order by created_at, id loop
-    insert into messages (channel_id, author_id, anonymous, body, created_at)
-    values (t.channel_id, t.author_id, coalesce((to_jsonb(t) ->> 'anonymous')::boolean, false),  -- v1 had no column
-            left(coalesce(nullif(concat_ws(E'\n', t.title, t.body), ''), '.'), 4000), t.created_at)
-    returning id into new_id;
-    update anon_authors set kind = 'message', item_id = new_id where kind = 'thread' and item_id = t.id;
-    if to_regclass('public.thread_likes') is not null then
-      insert into reactions (message_id, user_id, emoji, created_at)
-        select new_id, l.user_id, 'like', l.created_at from thread_likes l
-         where l.thread_id = t.id and l.user_id is distinct from t.author_id
-        on conflict do nothing;
-    end if;
-    update messages set channel_id = t.channel_id, reply_to = coalesce(reply_to, new_id), thread_id = null
-     where thread_id = t.id;
-    update threads set migrated_message_id = new_id where id = t.id;
-  end loop;
-  alter table messages enable trigger user;
-end $$;
-
--- Anything still without a room (should not happen) goes to the main room; then enforce.
-update messages set channel_id = (select id from channels where is_main) where channel_id is null;
-alter table messages alter column channel_id set not null;
-update channels c set last_message_at = coalesce((select max(created_at) from messages m where m.channel_id = c.id), c.created_at);
-
 -- ---------- Permission helpers ----------
 create or replace function is_active() returns boolean
 language sql stable security definer set search_path = public as $$
@@ -219,11 +191,6 @@ create or replace function is_admin() returns boolean
 language sql stable security definer set search_path = public as $$
   select exists (select 1 from profiles
                  where id = auth.uid() and status = 'active' and role = 'admin');
-$$;
-
-create or replace function can_send_anon() returns boolean
-language sql stable security definer set search_path = public as $$
-  select exists (select 1 from profiles where id = auth.uid() and status = 'active' and can_send_anonymous);
 $$;
 
 create or replace function owns_anon(p_kind text, p_id bigint) returns boolean
@@ -265,20 +232,19 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function handle_new_user();
 
--- Members edit their own name/bio. Only admins change role, status and anonymity permissions.
--- (auth.uid() is null when run from the SQL editor, which may change anything.)
+-- Only admins may change role/status. (auth.uid() is null when run from the SQL editor.)
 create or replace function guard_profile_update() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
   if auth.uid() is not null and not is_admin() then
-    new.role               := old.role;
-    new.status             := old.status;
-    new.accept_anonymous   := old.accept_anonymous;
-    new.can_send_anonymous := old.can_send_anonymous;
+    new.role   := old.role;
+    new.status := old.status;
   end if;
   if auth.uid() is not null and auth.uid() <> old.id then
-    new.display_name := old.display_name;
-    new.bio          := old.bio;
+    -- admins manage role/status only; personal fields belong to the member
+    new.display_name     := old.display_name;
+    new.bio              := old.bio;
+    new.accept_anonymous := old.accept_anonymous;
   end if;
   new.id := old.id;
   new.created_at := old.created_at;
@@ -289,48 +255,44 @@ drop trigger if exists profiles_guard on profiles;
 create trigger profiles_guard before update on profiles
   for each row execute function guard_profile_update();
 
--- Rooms: creators edit name/description; mods also set announcement mode; the main room is fixed.
-create or replace function guard_channel_update() returns trigger
+-- Threads: only the owner edits text; only mods pin/lock/move; nobody fakes counters or authorship.
+create or replace function guard_thread_update() returns trigger
 language plpgsql security definer set search_path = public as $$
+declare
+  is_owner boolean;
 begin
-  new.id         := old.id;
+  new.author_id  := old.author_id;
+  new.anonymous  := old.anonymous;
   new.created_at := old.created_at;
-  if auth.uid() is not null then
-    new.is_main    := old.is_main;
-    new.created_by := old.created_by;
-    if pg_trigger_depth() = 1 then new.last_message_at := old.last_message_at; end if;
+  -- Depth 1 = a direct user update (not the reply-counter trigger below).
+  if pg_trigger_depth() = 1 and auth.uid() is not null then
+    is_owner := coalesce(old.author_id = auth.uid(), false) or owns_anon('thread', old.id);
+    new.message_count    := old.message_count;
+    new.last_activity_at := old.last_activity_at;
+    if not is_owner then
+      new.title := old.title;
+      new.body  := old.body;
+    end if;
     if not is_mod() then
-      new.admin_only_post := old.admin_only_post;
-      new.position        := old.position;
+      new.pinned     := old.pinned;
+      new.locked     := old.locked;
+      new.channel_id := old.channel_id;
     end if;
   end if;
   return new;
 end $$;
 
-drop trigger if exists channels_guard on channels;
-create trigger channels_guard before update on channels
-  for each row execute function guard_channel_update();
+drop trigger if exists threads_guard on threads;
+create trigger threads_guard before update on threads
+  for each row execute function guard_thread_update();
 
-create or replace function guard_channel_delete() returns trigger
-language plpgsql as $$
-begin
-  if old.is_main and auth.uid() is not null then
-    raise exception 'אי אפשר למחוק את הצ''אט הראשי' using errcode = '42501';
-  end if;
-  return old;
-end $$;
-
-drop trigger if exists channels_guard_delete on channels;
-create trigger channels_guard_delete before delete on channels
-  for each row execute function guard_channel_delete();
-
--- Messages: owner edits body; soft delete wipes body; nothing else changes.
+-- Replies: owner edits body; soft delete wipes body; nothing else changes.
 create or replace function guard_message_update() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
   new.author_id  := old.author_id;
   new.anonymous  := old.anonymous;
-  new.channel_id := old.channel_id;
+  new.thread_id  := old.thread_id;
   new.created_at := old.created_at;
   new.reply_to   := old.reply_to;
   if old.deleted then
@@ -374,98 +336,72 @@ drop trigger if exists dm_messages_guard on dm_messages;
 create trigger dm_messages_guard before update on dm_messages
   for each row execute function guard_dm_message_update();
 
--- Room activity timestamp (drives sidebar order and unread counts).
-drop trigger if exists messages_bump on messages;
-create or replace function bump_channel() returns trigger
+-- Keep thread counters fresh.
+create or replace function bump_thread() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
-  update channels set last_message_at = new.created_at where id = new.channel_id;
+  update threads
+     set message_count = message_count + 1,
+         last_activity_at = new.created_at
+   where id = new.thread_id;
   return new;
 end $$;
+
+drop trigger if exists messages_bump on messages;
 create trigger messages_bump after insert on messages
-  for each row execute function bump_channel();
+  for each row execute function bump_thread();
 
--- ---------- Actions (all authored writes go through these) ----------
-drop function if exists create_thread(bigint, text, text, boolean);
-drop function if exists post_message(bigint, text, bigint, boolean);
+-- ---------- Actions (all writes that involve authorship go through these) ----------
 
-create or replace function create_room(p_name text, p_description text default null)
-returns channels
-language plpgsql security definer set search_path = public as $$
-declare
-  c channels;
-begin
-  if not is_active() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  if char_length(trim(coalesce(p_name, ''))) = 0 then raise exception 'יש לתת שם לחדר'; end if;
-  if (select count(*) from channels where created_by = auth.uid()) >= 20 and not is_mod() then
-    raise exception 'הגעת למספר החדרים המרבי שאפשר לפתוח';
-  end if;
-  insert into channels (name, description, created_by, position)
-  values (left(trim(p_name), 60), nullif(left(trim(coalesce(p_description, '')), 300), ''), auth.uid(),
-          coalesce((select max(position) + 1 from channels), 0))
-  returning * into c;
-  return c;
-end $$;
-
-create or replace function send_message(p_channel bigint, p_body text, p_reply_to bigint default null, p_anonymous boolean default false)
-returns messages
+create or replace function create_thread(p_channel bigint, p_title text, p_body text, p_anonymous boolean default false)
+returns threads
 language plpgsql security definer set search_path = public as $$
 declare
   ch channels;
-  m messages;
+  t threads;
 begin
   if not is_active() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
   select * into ch from channels where id = p_channel;
-  if not found then raise exception 'החדר לא נמצא'; end if;
+  if not found then raise exception 'המרחב לא נמצא'; end if;
   if ch.admin_only_post and not is_mod() then
-    raise exception 'רק מנהלים כותבים בחדר הזה' using errcode = '42501';
+    raise exception 'רק מנהלים יכולים לפרסם במרחב הזה' using errcode = '42501';
   end if;
-  if coalesce(p_anonymous, false) and not can_send_anon() then
-    raise exception 'אין לך הרשאה לשלוח הודעות אנונימיות' using errcode = '42501';
-  end if;
-  insert into messages (channel_id, author_id, anonymous, body, reply_to)
+  insert into threads (channel_id, author_id, anonymous, title, body)
   values (p_channel,
           case when p_anonymous then null else auth.uid() end,
           coalesce(p_anonymous, false),
+          nullif(trim(p_title), ''),
+          nullif(trim(p_body), ''))
+  returning * into t;
+  if p_anonymous then
+    insert into anon_authors (kind, item_id, author_id) values ('thread', t.id, auth.uid());
+  end if;
+  return t;
+end $$;
+
+create or replace function post_message(p_thread bigint, p_body text, p_reply_to bigint default null, p_anonymous boolean default false)
+returns messages
+language plpgsql security definer set search_path = public as $$
+declare
+  th threads;
+  m messages;
+begin
+  if not is_active() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
+  select * into th from threads where id = p_thread;
+  if not found then raise exception 'השרשור לא נמצא'; end if;
+  if th.locked and not is_mod() then raise exception 'השרשור נעול' using errcode = '42501'; end if;
+  insert into messages (thread_id, author_id, anonymous, body, reply_to)
+  values (p_thread,
+          case when p_anonymous then null else auth.uid() end,
+          coalesce(p_anonymous, false),
           trim(p_body),
-          (select id from messages where id = p_reply_to and channel_id = p_channel))
+          (select id from messages where id = p_reply_to and thread_id = p_thread))
   returning * into m;
   if p_anonymous then
     insert into anon_authors (kind, item_id, author_id) values ('message', m.id, auth.uid());
   end if;
-  insert into channel_reads (user_id, channel_id, last_read_at) values (auth.uid(), p_channel, m.created_at)
-    on conflict (user_id, channel_id) do update set last_read_at = excluded.last_read_at;
   return m;
 end $$;
-
-create or replace function mark_room_read(p_channel bigint) returns void
-language sql security definer set search_path = public as $$
-  insert into channel_reads (user_id, channel_id, last_read_at)
-  select auth.uid(), p_channel, now() where is_active()
-  on conflict (user_id, channel_id) do update set last_read_at = excluded.last_read_at;
-$$;
-
--- Sidebar: every room with my unread count and a preview of the last message.
-create or replace function my_rooms()
-returns table (id bigint, name text, description text, is_main boolean, admin_only_post boolean,
-               created_by uuid, last_message_at timestamptz, unread int,
-               last_body text, last_author uuid, last_anonymous boolean)
-language sql stable security definer set search_path = public as $$
-  select c.id, c.name, c.description, c.is_main, c.admin_only_post, c.created_by, c.last_message_at,
-         (select count(*)::int from messages m
-           where m.channel_id = c.id and not m.deleted
-             and m.created_at > coalesce(r.last_read_at, me.created_at)
-             and m.author_id is distinct from auth.uid()
-             and not (m.anonymous and owns_anon('message', m.id))),
-         lm.body, lm.author_id, lm.anonymous
-    from channels c
-    cross join (select created_at from profiles where id = auth.uid()) me
-    left join channel_reads r on r.channel_id = c.id and r.user_id = auth.uid()
-    left join lateral (select case when m.deleted then '' else m.body end as body, m.author_id, m.anonymous
-                         from messages m where m.channel_id = c.id order by m.created_at desc, m.id desc limit 1) lm on true
-   where is_active()
-   order by c.is_main desc, c.last_message_at desc;
-$$;
 
 create or replace function post_wall(p_profile uuid, p_body text, p_anonymous boolean default false)
 returns wall_posts
@@ -477,9 +413,8 @@ begin
   if not is_active() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
   select * into target from profiles where id = p_profile and status = 'active';
   if not found then raise exception 'המשתמש לא נמצא'; end if;
-  if coalesce(p_anonymous, false) then
-    if not can_send_anon() then raise exception 'אין לך הרשאה לשלוח הודעות אנונימיות' using errcode = '42501'; end if;
-    if not target.accept_anonymous then raise exception 'המשתמש לא מקבל הודעות אנונימיות' using errcode = '42501'; end if;
+  if p_anonymous and not target.accept_anonymous then
+    raise exception 'המשתמש לא מקבל הודעות אנונימיות' using errcode = '42501';
   end if;
   insert into wall_posts (profile_id, author_id, anonymous, body)
   values (p_profile, case when p_anonymous then null else auth.uid() end, coalesce(p_anonymous, false), trim(p_body))
@@ -505,8 +440,9 @@ begin
   if not found then raise exception 'המשתמש לא נמצא'; end if;
 
   if coalesce(p_anonymous, false) then
-    if not can_send_anon() then raise exception 'אין לך הרשאה לשלוח הודעות אנונימיות' using errcode = '42501'; end if;
-    if not target.accept_anonymous then raise exception 'המשתמש לא מקבל הודעות אנונימיות' using errcode = '42501'; end if;
+    if not target.accept_anonymous then
+      raise exception 'המשתמש לא מקבל הודעות אנונימיות' using errcode = '42501';
+    end if;
     select c.id into conv_id
       from dm_conversations c
       join dm_participants me on me.conversation_id = c.id and me.user_id = auth.uid() and me.hidden
@@ -548,14 +484,6 @@ begin
   if not found then raise exception 'אין הרשאה' using errcode = '42501'; end if;
   select * into c from dm_conversations where id = p_conv;
   if c.closed then raise exception 'השיחה נחסמה על ידי הנמען' using errcode = '42501'; end if;
-  if me.hidden then
-    -- permissions are re-checked on every message, so an admin change applies to open chats too
-    if not can_send_anon() then raise exception 'אין לך הרשאה לשלוח הודעות אנונימיות' using errcode = '42501'; end if;
-    if not exists (select 1 from dm_participants p join profiles pr on pr.id = p.user_id
-                   where p.conversation_id = p_conv and p.user_id <> auth.uid() and pr.accept_anonymous) then
-      raise exception 'המשתמש לא מקבל הודעות אנונימיות' using errcode = '42501';
-    end if;
-  end if;
   insert into dm_messages (conversation_id, sender_id, body)
   values (p_conv, case when me.hidden then null else auth.uid() end, trim(p_body))
   returning * into m;
@@ -603,33 +531,37 @@ language sql stable security definer set search_path = public as $$
    order by c.last_message_at desc;
 $$;
 
--- Reputation: 5 per like received + 1 per message. Anonymous content never counts.
-drop function if exists member_stats();
-create function member_stats()
-returns table (id uuid, messages int, likes int, reputation int)
+-- Reputation: 5 per like received + 2 per thread + 1 per reply. Anonymous content never counts.
+create or replace function member_stats()
+returns table (id uuid, threads int, replies int, likes int, reputation int)
 language sql stable security definer set search_path = public as $$
-  select s.id, s.messages, s.likes, s.likes * 5 + s.messages
+  select s.id, s.threads, s.replies, s.likes, s.likes * 5 + s.threads * 2 + s.replies
   from (
     select p.id,
-      (select count(*)::int from messages m where m.author_id = p.id and not m.deleted) as messages,
-      (select count(*)::int from reactions r join messages m on m.id = r.message_id
-        where m.author_id = p.id and not m.deleted) as likes
+      (select count(*)::int from threads t where t.author_id = p.id) as threads,
+      (select count(*)::int from messages m where m.author_id = p.id and not m.deleted) as replies,
+      ((select count(*) from reactions r join messages m on m.id = r.message_id
+         where m.author_id = p.id and not m.deleted)
+       + (select count(*) from thread_likes l join threads t on t.id = l.thread_id
+         where t.author_id = p.id))::int as likes
     from profiles p
     where p.status = 'active' and is_active()
   ) s;
 $$;
 
-revoke execute on function create_room, send_message, mark_room_read, my_rooms, post_wall, start_dm, send_dm,
-  mark_dm_read, set_dm_closed, my_conversations, member_stats from anon, public;
-grant execute on function create_room, send_message, mark_room_read, my_rooms, post_wall, start_dm, send_dm,
-  mark_dm_read, set_dm_closed, my_conversations, member_stats to authenticated;
+revoke execute on function create_thread, post_message, post_wall, start_dm, send_dm, mark_dm_read,
+  set_dm_closed, my_conversations, member_stats from anon, public;
+grant execute on function create_thread, post_message, post_wall, start_dm, send_dm, mark_dm_read,
+  set_dm_closed, my_conversations, member_stats to authenticated;
 
 -- ---------- Row Level Security ----------
 alter table profiles         enable row level security;
 alter table channels         enable row level security;
+alter table threads          enable row level security;
 alter table messages         enable row level security;
-alter table channel_reads    enable row level security;
 alter table reactions        enable row level security;
+alter table thread_likes     enable row level security;
+alter table thread_reads     enable row level security;
 alter table anon_authors     enable row level security;
 alter table wall_posts       enable row level security;
 alter table dm_conversations enable row level security;
@@ -644,19 +576,25 @@ drop policy if exists profiles_update on profiles;
 create policy profiles_update on profiles for update
   using (id = auth.uid() or is_admin());
 
--- rooms (created via create_room)
+-- spaces
 drop policy if exists channels_select on channels;
 create policy channels_select on channels for select using (is_active());
 drop policy if exists channels_admin on channels;
 create policy channels_admin on channels for all using (is_admin()) with check (is_admin());
-drop policy if exists channels_update_owner on channels;
-create policy channels_update_owner on channels for update
-  using (is_active() and (created_by = auth.uid() or is_mod()));
-drop policy if exists channels_delete_owner on channels;
-create policy channels_delete_owner on channels for delete
-  using (is_active() and not is_main and (created_by = auth.uid() or is_mod()));
 
--- messages (created via send_message only)
+-- threads (created via create_thread only)
+drop policy if exists threads_select on threads;
+create policy threads_select on threads for select using (is_active());
+drop policy if exists threads_insert on threads;
+drop policy if exists threads_update on threads;
+create policy threads_update on threads for update
+  using (is_active() and (author_id = auth.uid() or owns_anon('thread', id) or is_mod()));
+drop policy if exists threads_delete on threads;
+-- Owners may delete only while nobody has replied; mods always.
+create policy threads_delete on threads for delete
+  using (is_active() and (((author_id = auth.uid() or owns_anon('thread', id)) and message_count = 0) or is_mod()));
+
+-- replies (created via post_message only)
 drop policy if exists messages_select on messages;
 create policy messages_select on messages for select using (is_active());
 drop policy if exists messages_insert on messages;
@@ -664,11 +602,7 @@ drop policy if exists messages_update on messages;
 create policy messages_update on messages for update
   using (is_active() and (author_id = auth.uid() or owns_anon('message', id) or is_mod()));
 
-drop policy if exists channel_reads_own on channel_reads;
-create policy channel_reads_own on channel_reads for all
-  using (user_id = auth.uid()) with check (user_id = auth.uid());
-
--- likes (not on your own messages)
+-- likes (not on your own content)
 drop policy if exists reactions_select on reactions;
 create policy reactions_select on reactions for select using (is_active());
 drop policy if exists reactions_insert on reactions;
@@ -679,6 +613,22 @@ create policy reactions_insert on reactions for insert with check (
 );
 drop policy if exists reactions_delete on reactions;
 create policy reactions_delete on reactions for delete using (user_id = auth.uid());
+
+drop policy if exists thread_likes_select on thread_likes;
+create policy thread_likes_select on thread_likes for select using (is_active());
+drop policy if exists thread_likes_insert on thread_likes;
+create policy thread_likes_insert on thread_likes for insert with check (
+  is_active() and user_id = auth.uid()
+  and not exists (select 1 from threads t where t.id = thread_id and t.author_id = auth.uid())
+  and not owns_anon('thread', thread_id)
+);
+drop policy if exists thread_likes_delete on thread_likes;
+create policy thread_likes_delete on thread_likes for delete using (user_id = auth.uid());
+
+-- thread_reads (private per user)
+drop policy if exists thread_reads_own on thread_reads;
+create policy thread_reads_own on thread_reads for all
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
 
 -- anonymous authorship: each author sees only their own rows; written only by the functions above
 drop policy if exists anon_authors_own on anon_authors;
@@ -706,33 +656,26 @@ create policy dm_msg_update on dm_messages for update using (
   is_active() and (sender_id = auth.uid() or (sender_id is null and is_hidden_in_dm(conversation_id)))
 );
 
--- Legacy v2 tables stay as a read-only backup of pre-migration data.
-do $$
-declare t text;
-begin
-  foreach t in array array['threads', 'thread_likes', 'thread_reads'] loop
-    if to_regclass('public.' || t) is not null then
-      execute format('alter table %I enable row level security', t);
-      execute format('drop policy if exists threads_insert on %I', t);
-      execute format('drop policy if exists threads_update on %I', t);
-      execute format('drop policy if exists threads_delete on %I', t);
-      execute format('drop policy if exists thread_likes_insert on %I', t);
-      execute format('drop policy if exists thread_likes_delete on %I', t);
-      execute format('drop policy if exists thread_reads_own on %I', t);
-    end if;
-  end loop;
-end $$;
-
 -- ---------- Realtime ----------
-alter table reactions  replica identity full;
-alter table wall_posts replica identity full;
+alter table reactions    replica identity full;
+alter table thread_likes replica identity full;
+alter table wall_posts   replica identity full;
 do $$
 declare t text;
 begin
-  foreach t in array array['messages', 'reactions', 'profiles', 'channels', 'wall_posts', 'dm_messages'] loop
+  foreach t in array array['messages', 'threads', 'reactions', 'thread_likes', 'profiles', 'wall_posts', 'dm_messages'] loop
     begin
       execute format('alter publication supabase_realtime add table %I', t);
     exception when duplicate_object then null;
     end;
   end loop;
 end $$;
+
+-- ---------- Starter spaces (only if none exist) ----------
+insert into channels (name, description, position, admin_only_post)
+select * from (values
+  ('הודעות', 'הודעות רשמיות מהנהלת הקהילה', 0, true),
+  ('כללי', 'שיחה חופשית', 1, false),
+  ('שאלות ועזרה', 'שאלות, בקשות ועזרה הדדית', 2, false)
+) v(name, description, position, admin_only_post)
+where not exists (select 1 from channels);

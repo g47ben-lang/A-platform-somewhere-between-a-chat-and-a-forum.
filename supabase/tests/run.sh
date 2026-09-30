@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# Runs schema.sql + permission tests against a local Postgres with a mocked Supabase auth schema.
+# Runs schema.sql + permission tests, and upgrade tests from every previous schema version,
+# against a local Postgres with a mocked Supabase auth schema.
 # Usage: PGHOST=... PGPORT=... PGUSER=postgres supabase/tests/run.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 DB=community_chat_test
-psql -q -d postgres -c "drop database if exists $DB" -c "create database $DB"
-psql -q -v ON_ERROR_STOP=1 -d $DB <<'SQL'
+
+fresh_db() {
+  psql -q -d postgres -c "drop database if exists $DB" -c "create database $DB"
+  psql -q -v ON_ERROR_STOP=1 -d $DB <<'SQL'
 set client_min_messages = warning;
 do $$ begin create role anon nologin; exception when duplicate_object then null; end $$;
 do $$ begin create role authenticated nologin; exception when duplicate_object then null; end $$;
@@ -17,6 +20,24 @@ create publication supabase_realtime;
 alter default privileges in schema public grant all on tables to authenticated;
 alter default privileges in schema public grant all on sequences to authenticated;
 SQL
-psql -q -v ON_ERROR_STOP=1 -d $DB -c "set client_min_messages = warning" -f schema.sql
+}
+
+apply() { psql -q -v ON_ERROR_STOP=1 -d $DB -c "set client_min_messages = warning" -f "$1" >/dev/null; }
+
+echo "== fresh install =="
+fresh_db
+apply schema.sql
+apply schema.sql   # must be re-runnable
 psql -q -v ON_ERROR_STOP=1 -d $DB -f tests/permissions.sql
+
+for v in 1 2; do
+  echo "== upgrade from v$v =="
+  fresh_db
+  apply tests/fixtures/schema_v$v.sql
+  psql -q -v ON_ERROR_STOP=1 -v ver=$v -d $DB -f tests/upgrade.sql >/dev/null
+  apply schema.sql
+  apply schema.sql
+  psql -q -v ON_ERROR_STOP=1 -d $DB -f tests/upgrade_check.sql
+done
+
 psql -q -d postgres -c "drop database $DB"

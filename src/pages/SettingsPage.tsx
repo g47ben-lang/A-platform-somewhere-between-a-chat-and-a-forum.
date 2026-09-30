@@ -2,8 +2,10 @@ import { useState, type FormEvent } from 'react';
 import { useApp } from '../AppContext';
 import { supabase } from '../supabase';
 import { errorText } from '../lib/format';
+import { notificationsEnabled, notificationsSupported, setNotificationsEnabled } from '../lib/notify';
 import Avatar from '../components/Avatar';
 import { useFeedback } from '../components/Feedback';
+import Icon from '../components/Icon';
 import PasswordFields, { passwordProblem } from '../components/PasswordFields';
 
 export default function SettingsPage() {
@@ -11,8 +13,8 @@ export default function SettingsPage() {
   const { toast } = useFeedback();
   const [name, setName] = useState(me?.display_name ?? '');
   const [bio, setBio] = useState(me?.bio ?? '');
-  const [acceptAnon, setAcceptAnon] = useState(me?.accept_anonymous ?? true);
   const [pw, setPw] = useState({ password: '', confirm: '' });
+  const [notifyOn, setNotifyOn] = useState(notificationsEnabled());
   const [busy, setBusy] = useState(false);
 
   if (!me) return null;
@@ -20,10 +22,7 @@ export default function SettingsPage() {
   async function saveProfile(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
-    const { error } = await supabase
-      .from('profiles')
-      .update({ display_name: name.trim(), bio: bio.trim() || null, accept_anonymous: acceptAnon })
-      .eq('id', me!.id);
+    const { error } = await supabase.from('profiles').update({ display_name: name.trim(), bio: bio.trim() || null }).eq('id', me!.id);
     setBusy(false);
     if (error) return toast(errorText(error), 'error');
     toast('הפרופיל נשמר');
@@ -42,7 +41,13 @@ export default function SettingsPage() {
     setPw({ password: '', confirm: '' });
   }
 
-  const dirty = name.trim() !== me.display_name || (bio.trim() || null) !== (me.bio ?? null) || acceptAnon !== me.accept_anonymous;
+  async function toggleNotify(on: boolean) {
+    const result = await setNotificationsEnabled(on);
+    setNotifyOn(result);
+    if (on && !result) toast('הדפדפן לא אישר התראות. אפשר לאשר בהגדרות האתר בדפדפן.', 'error');
+  }
+
+  const dirty = name.trim() !== me.display_name || (bio.trim() || null) !== (me.bio ?? null);
 
   return (
     <div className="pane scroll-pane">
@@ -63,20 +68,35 @@ export default function SettingsPage() {
           </label>
           <label className="field">
             <span>קצת עליי</span>
-            <textarea value={bio} onChange={(e) => setBio(e.target.value)} rows={3} maxLength={500} placeholder="כמה מילים שיופיעו בפרופיל שלך" />
+            <textarea value={bio} onChange={(e) => setBio(e.target.value)} rows={3} maxLength={500} placeholder="כמה מילים שיופיעו בכרטיס שלך" />
             <span className="field-hint">{bio.length}/500</span>
-          </label>
-          <label className="switch-row">
-            <span>
-              <strong>קבלת הודעות אנונימיות</strong>
-              <span className="muted small">כשהאפשרות כבויה, אי אפשר לשלוח לך הודעות פרטיות אנונימיות או לכתוב בפרופיל שלך בעילום שם.</span>
-            </span>
-            <input type="checkbox" className="switch" checked={acceptAnon} onChange={(e) => setAcceptAnon(e.target.checked)} />
           </label>
           <div className="form-actions">
             <button className="btn filled" disabled={busy || !dirty || !name.trim()}>שמירת שינויים</button>
           </div>
         </form>
+
+        <section className="settings-card">
+          <h2>התראות</h2>
+          {notificationsSupported() ? (
+            <label className="switch-row">
+              <span>
+                <strong>התראות בדפדפן</strong>
+                <span className="muted small">התראה כשמגיעה הודעה אישית או כשמישהו מזכיר אותך, בזמן שהאתר פתוח ברקע.</span>
+              </span>
+              <input type="checkbox" className="switch" checked={notifyOn} onChange={(e) => toggleNotify(e.target.checked)} />
+            </label>
+          ) : (
+            <p className="muted">הדפדפן הזה לא תומך בהתראות.</p>
+          )}
+        </section>
+
+        <section className="settings-card">
+          <h2>הודעות אנונימיות</h2>
+          <p className="muted small">ההרשאות האלה נקבעות על ידי מנהלי הקהילה.</p>
+          <PermRow on={me.can_send_anonymous} label="שליחת הודעות בעילום שם" />
+          <PermRow on={me.accept_anonymous} label="קבלת הודעות אנונימיות" />
+        </section>
 
         <form className="settings-card" onSubmit={savePassword}>
           <h2>החלפת סיסמה</h2>
@@ -86,6 +106,18 @@ export default function SettingsPage() {
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+function PermRow({ on, label }: { on: boolean; label: string }) {
+  return (
+    <div className="perm-row">
+      <span className={`perm-state ${on ? 'on' : ''}`}>
+        <Icon name={on ? 'check' : 'block'} size={18} />
+      </span>
+      <span className="grow">{label}</span>
+      <span className="muted small">{on ? 'מותר' : 'חסום'}</span>
     </div>
   );
 }

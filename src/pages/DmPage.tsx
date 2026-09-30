@@ -1,31 +1,37 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useParams } from 'react-router-dom';
 import { useApp } from '../AppContext';
 import { supabase } from '../supabase';
 import { subscribe } from '../lib/realtime';
-import { dayLabel, errorText } from '../lib/format';
-import { useStickyScroll } from '../lib/useStickyScroll';
+import { errorText } from '../lib/format';
+import { useTyping } from '../lib/useTyping';
 import type { DmMessage } from '../types';
 import Avatar from '../components/Avatar';
+import ChatStream, { type StreamItem } from '../components/ChatStream';
 import Composer, { type ComposerHandle } from '../components/Composer';
 import { useFeedback } from '../components/Feedback';
 import Icon from '../components/Icon';
-import MessageRow, { DaySeparator, type RowAction } from '../components/MessageRow';
+import type { RowAction } from '../components/MessageRow';
+import { useProfileCard } from '../components/ProfileCard';
 
-const PAGE = 100;
-const GROUP_MS = 5 * 60 * 1000;
+const PAGE = 80;
 
 export default function DmPage() {
   const convId = Number(useParams().convId);
   const { me, conversations, online, nameOf, reloadConversations } = useApp();
   const { confirm, toast } = useFeedback();
+  const openCard = useProfileCard();
   const conv = conversations.find((c) => c.id === convId);
 
   const [messages, setMessages] = useState<DmMessage[] | null>(null);
   const [hasOlder, setHasOlder] = useState(false);
   const [editing, setEditing] = useState<DmMessage | null>(null);
+  const [firstUnreadId, setFirstUnreadId] = useState<number | null>(null);
+  const [sentTick, setSentTick] = useState(0);
   const composer = useRef<ComposerHandle>(null);
-  const scroll = useStickyScroll([messages]);
+  const unreadSnapshot = useRef(0);
+  // In an anonymous chat my typing pings carry no name.
+  const { typingLabel, ping } = useTyping(`dm-${convId}`, conv?.i_am_hidden ? undefined : me?.display_name);
 
   const markRead = useCallback(async () => {
     await supabase.rpc('mark_dm_read', { p_conv: convId });
@@ -33,14 +39,29 @@ export default function DmPage() {
   }, [convId, reloadConversations]);
 
   useEffect(() => {
+    unreadSnapshot.current = conv?.unread ?? 0;
+    // only when switching conversations
+  }, [convId]);
+
+  const isMine = useCallback(
+    (m: DmMessage) => (m.sender_id ? m.sender_id === me?.id : !!conv?.i_am_hidden),
+    [me, conv?.i_am_hidden],
+  );
+
+  useEffect(() => {
     let cancelled = false;
     setMessages(null);
     setEditing(null);
-    scroll.toBottom();
+    setFirstUnreadId(null);
     (async () => {
       const { data } = await supabase.from('dm_messages').select('*').eq('conversation_id', convId).order('id', { ascending: false }).limit(PAGE);
       if (cancelled) return;
       const list = ((data as DmMessage[]) ?? []).reverse();
+      const unread = unreadSnapshot.current;
+      if (unread > 0) {
+        const theirs = list.filter((m) => !m.deleted && !isMine(m));
+        setFirstUnreadId(theirs[Math.max(0, theirs.length - unread)]?.id ?? null);
+      }
       setMessages(list);
       setHasOlder(list.length === PAGE);
       markRead();
@@ -50,32 +71,47 @@ export default function DmPage() {
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'dm_messages', filter: `conversation_id=eq.${convId}` }, (p) => {
           const m = p.new as DmMessage;
           setMessages((prev) => (prev && !prev.some((x) => x.id === m.id) ? [...prev, m] : prev));
-          markRead();
+          if (!document.hidden) markRead();
         })
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'dm_messages', filter: `conversation_id=eq.${convId}` }, (p) => {
           const m = p.new as DmMessage;
           setMessages((prev) => prev?.map((x) => (x.id === m.id ? m : x)) ?? prev);
         }),
     );
+    const onVisible = () => !document.hidden && markRead();
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       cancelled = true;
       unsub();
+      document.removeEventListener('visibilitychange', onVisible);
     };
-    // scroll helpers are stable refs
   }, [convId, markRead]);
+
+  const items: StreamItem[] | null = useMemo(
+    () =>
+      messages?.map((m) => ({
+        id: m.id,
+        authorId: m.sender_id,
+        anonymous: !m.sender_id,
+        mine: isMine(m),
+        createdAt: m.created_at,
+        editedAt: m.edited_at,
+        deleted: m.deleted,
+        body: m.body,
+      })) ?? null,
+    [messages, isMine],
+  );
 
   async function loadOlder() {
     const first = messages?.[0];
     if (!first) return;
     const { data } = await supabase.from('dm_messages').select('*').eq('conversation_id', convId).lt('id', first.id).order('id', { ascending: false }).limit(PAGE);
     const older = ((data as DmMessage[]) ?? []).reverse();
-    scroll.keepPosition();
     setMessages((prev) => [...older, ...(prev ?? [])]);
     setHasOlder(older.length === PAGE);
   }
 
   async function send(text: string) {
-    if (!text) return false;
     if (editing) {
       const { error } = await supabase.from('dm_messages').update({ body: text }).eq('id', editing.id);
       if (error) {
@@ -92,18 +128,19 @@ export default function DmPage() {
       return false;
     }
     const m = data as DmMessage;
-    scroll.toBottom();
     setMessages((prev) => (prev && !prev.some((x) => x.id === m.id) ? [...prev, m] : prev));
+    setFirstUnreadId(null);
+    setSentTick((t) => t + 1);
     reloadConversations();
     return true;
   }
 
-  async function remove(m: DmMessage) {
+  async function remove(id: number) {
     const ok = await confirm({ title: 'מחיקת הודעה', body: 'ההודעה תימחק גם אצל הצד השני.', confirmLabel: 'מחיקה', danger: true });
     if (!ok) return;
-    const { error } = await supabase.from('dm_messages').update({ deleted: true }).eq('id', m.id);
+    const { error } = await supabase.from('dm_messages').update({ deleted: true }).eq('id', id);
     if (error) toast(errorText(error), 'error');
-    else setMessages((prev) => prev?.map((x) => (x.id === m.id ? { ...x, deleted: true, body: '' } : x)) ?? prev);
+    else setMessages((prev) => prev?.map((x) => (x.id === id ? { ...x, deleted: true, body: '' } : x)) ?? prev);
   }
 
   async function setClosed(closed: boolean) {
@@ -127,29 +164,46 @@ export default function DmPage() {
   if (!conv) {
     return (
       <div className="pane">
-        <div className="empty-state">{conversations.length === 0 && messages === null ? <div className="spinner" /> : <p>השיחה לא נמצאה.</p>}</div>
+        <div className="empty-state">{conversations.length === 0 ? <div className="spinner" /> : <p>השיחה לא נמצאה.</p>}</div>
       </div>
     );
   }
 
   const otherName = conv.other_id ? nameOf(conv.other_id) : 'משתמש אנונימי';
-  const isMine = (m: DmMessage) => (m.sender_id ? m.sender_id === me?.id : conv.i_am_hidden);
   const recipientOfAnon = conv.anonymous && !conv.i_am_hidden;
 
   let disabledReason: string | undefined;
   if (conv.closed) disabledReason = recipientOfAnon ? 'חסמת את השיחה הזו' : 'הנמען חסם את השיחה';
+  else if (conv.i_am_hidden && !me?.can_send_anonymous) disabledReason = 'ההרשאה שלך לשלוח הודעות אנונימיות בוטלה על ידי מנהלי הקהילה';
+
+  function actionsFor(item: StreamItem): RowAction[] {
+    if (!item.mine) return [];
+    const m = messages!.find((x) => x.id === item.id)!;
+    return [
+      { icon: 'edit', label: 'עריכה', onClick: () => { setEditing(m); composer.current?.setText(m.body); } },
+      { icon: 'delete', label: 'מחיקה', onClick: () => remove(item.id), danger: true },
+    ];
+  }
 
   return (
-    <section className="pane">
+    <section className="pane chat-pane">
       <header className="pane-head">
-        <Avatar id={conv.other_id} name={otherName} size={36} anonymous={!conv.other_id} online={!!conv.other_id && online.has(conv.other_id)} />
+        {conv.other_id ? (
+          <button className="avatar-link" onClick={(e) => openCard(conv.other_id!, e.currentTarget)} aria-label={otherName}>
+            <Avatar id={conv.other_id} name={otherName} size={36} online={online.has(conv.other_id)} />
+          </button>
+        ) : (
+          <Avatar anonymous size={36} />
+        )}
         <div className="pane-titles">
           <h1>
-            {conv.other_id ? <Link to={`/u/${conv.other_id}`}>{otherName}</Link> : otherName}
+            {conv.other_id ? (
+              <button className="title-link" onClick={(e) => openCard(conv.other_id!, e.currentTarget)}>{otherName}</button>
+            ) : (
+              otherName
+            )}
           </h1>
-          <p>
-            {conv.other_id ? (online.has(conv.other_id) ? 'מחובר/ת עכשיו' : 'לא מחובר/ת') : 'זהות השולח מוסתרת'}
-          </p>
+          <p>{conv.other_id ? (online.has(conv.other_id) ? 'מחובר/ת עכשיו' : 'לא מחובר/ת') : 'זהות השולח מוסתרת'}</p>
         </div>
         {recipientOfAnon && (
           <button className="btn outlined small" onClick={() => setClosed(!conv.closed)}>
@@ -167,55 +221,30 @@ export default function DmPage() {
         </div>
       )}
 
-      <div className="stream" ref={scroll.ref} onScroll={scroll.onScroll}>
-        {messages === null ? (
-          <div className="spinner" />
-        ) : messages.length === 0 ? (
-          <div className="empty-state">
+      <ChatStream
+        key={convId}
+        items={items}
+        hasOlder={hasOlder}
+        onLoadOlder={loadOlder}
+        actionsFor={actionsFor}
+        firstUnreadId={firstUnreadId}
+        highlightId={editing?.id ?? null}
+        typingLabel={typingLabel}
+        sentTick={sentTick}
+        empty={
+          <>
             <Avatar id={conv.other_id} name={otherName} size={64} anonymous={!conv.other_id} />
             <p><strong>{otherName}</strong></p>
             <p className="muted">זו תחילת השיחה ביניכם. ההודעות גלויות רק לשניכם.</p>
-          </div>
-        ) : (
-          <>
-            {hasOlder && <button className="btn tonal load-older" onClick={loadOlder}>טעינת הודעות קודמות</button>}
-            {messages.map((m, i) => {
-              const prev = messages[i - 1];
-              const newDay = !prev || dayLabel(prev.created_at) !== dayLabel(m.created_at);
-              const grouped = !newDay && prev && prev.sender_id === m.sender_id && new Date(m.created_at).getTime() - new Date(prev.created_at).getTime() < GROUP_MS;
-              const mine = isMine(m);
-              const actions: RowAction[] = mine
-                ? [
-                    { icon: 'edit', label: 'עריכה', onClick: () => { setEditing(m); composer.current?.setText(m.body); } },
-                    { icon: 'delete', label: 'מחיקה', onClick: () => remove(m), danger: true },
-                  ]
-                : [];
-              return (
-                <div key={m.id}>
-                  {newDay && <DaySeparator label={dayLabel(m.created_at)} />}
-                  <MessageRow
-                    authorId={m.sender_id}
-                    anonymous={!m.sender_id}
-                    mine={mine}
-                    createdAt={m.created_at}
-                    editedAt={m.edited_at}
-                    deleted={m.deleted}
-                    body={m.body}
-                    grouped={grouped}
-                    highlight={editing?.id === m.id}
-                    actions={actions}
-                  />
-                </div>
-              );
-            })}
           </>
-        )}
-      </div>
+        }
+      />
 
       <Composer
         ref={composer}
         placeholder={`הודעה ל${otherName}`}
         onSend={send}
+        onTyping={(_anon, stop) => ping(!!conv.i_am_hidden, stop)}
         disabledReason={disabledReason}
         context={editing ? <><Icon name="edit" size={16} /> עריכת הודעה</> : undefined}
         onCancelContext={editing ? () => { setEditing(null); composer.current?.setText(''); } : undefined}

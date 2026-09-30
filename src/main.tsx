@@ -5,6 +5,7 @@ import { AppProvider } from './AppContext';
 import App from './App';
 import ErrorBoundary from './components/ErrorBoundary';
 import { FeedbackProvider } from './components/Feedback';
+import { ProfileCardProvider } from './components/ProfileCard';
 import './styles.css';
 
 createRoot(document.getElementById('root')!).render(
@@ -13,7 +14,9 @@ createRoot(document.getElementById('root')!).render(
       <HashRouter>
         <FeedbackProvider>
           <AppProvider>
-            <App />
+            <ProfileCardProvider>
+              <App />
+            </ProfileCardProvider>
           </AppProvider>
         </FeedbackProvider>
       </HashRouter>

@@ -3,7 +3,6 @@ import Icon from './Icon';
 
 export interface SendOptions {
   anonymous: boolean;
-  title: string;
 }
 
 export interface ComposerHandle {
@@ -15,25 +14,26 @@ interface Props {
   placeholder: string;
   onSend: (text: string, opts: SendOptions) => Promise<boolean>;
   allowAnonymous?: boolean;
-  allowTitle?: boolean;
   context?: ReactNode;
   onCancelContext?: () => void;
   disabledReason?: string;
   maxLength?: number;
-  submitLabel?: string;
+  /** Member names offered after typing "@". */
+  mentionNames?: string[];
+  onTyping?: (anonymous: boolean, stopped?: boolean) => void;
 }
 
 const isTouch = () => typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
 
 const Composer = forwardRef<ComposerHandle, Props>(function Composer(
-  { placeholder, onSend, allowAnonymous, allowTitle, context, onCancelContext, disabledReason, maxLength = 4000, submitLabel = 'שליחה' },
+  { placeholder, onSend, allowAnonymous, context, onCancelContext, disabledReason, maxLength = 4000, mentionNames = [], onTyping },
   ref,
 ) {
   const [text, setText] = useState('');
-  const [title, setTitle] = useState('');
-  const [showTitle, setShowTitle] = useState(false);
   const [anonymous, setAnonymous] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [mention, setMention] = useState<{ start: number; query: string } | null>(null);
+  const [pick, setPick] = useState(0);
   const input = useRef<HTMLTextAreaElement>(null);
 
   useImperativeHandle(ref, () => ({
@@ -44,13 +44,21 @@ const Composer = forwardRef<ComposerHandle, Props>(function Composer(
     },
   }));
 
-  // Grow with content up to a cap (field-sizing is not supported everywhere yet).
+  useEffect(() => {
+    if (!allowAnonymous) setAnonymous(false);
+  }, [allowAnonymous]);
+
+  // Grow with content up to a cap.
   useEffect(() => {
     const el = input.current;
     if (!el) return;
     el.style.height = 'auto';
     el.style.height = Math.min(el.scrollHeight, 200) + 'px';
   }, [text]);
+
+  const suggestions = mention
+    ? mentionNames.filter((n) => n.startsWith(mention.query) || n.includes(' ' + mention.query)).slice(0, 6)
+    : [];
 
   if (disabledReason) {
     return (
@@ -63,22 +71,64 @@ const Composer = forwardRef<ComposerHandle, Props>(function Composer(
     );
   }
 
-  const canSend = !busy && (text.trim().length > 0 || (showTitle && title.trim().length > 0));
+  const canSend = !busy && text.trim().length > 0;
 
   async function send() {
     if (!canSend) return;
     setBusy(true);
-    const ok = await onSend(text.trim(), { anonymous, title: showTitle ? title.trim() : '' });
+    const ok = await onSend(text.trim(), { anonymous });
     setBusy(false);
     if (ok) {
       setText('');
-      setTitle('');
-      setShowTitle(false);
+      setMention(null);
+      onTyping?.(anonymous, true);
     }
     input.current?.focus();
   }
 
+  function onChange(value: string, caret: number) {
+    setText(value);
+    const before = value.slice(0, caret);
+    const m = before.match(/(^|\s)@([^\s@]{0,20})$/);
+    if (m && mentionNames.length) {
+      setMention({ start: caret - m[2].length - 1, query: m[2] });
+      setPick(0);
+    } else {
+      setMention(null);
+    }
+    if (value.trim()) onTyping?.(anonymous);
+  }
+
+  function insertMention(name: string) {
+    if (!mention) return;
+    const caretEnd = mention.start + 1 + mention.query.length;
+    const next = text.slice(0, mention.start) + '@' + name + ' ' + text.slice(caretEnd);
+    setText(next);
+    setMention(null);
+    const pos = mention.start + name.length + 2;
+    setTimeout(() => {
+      input.current?.focus();
+      input.current?.setSelectionRange(pos, pos);
+    }, 0);
+  }
+
   function onKey(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (suggestions.length) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        setPick((p) => (p + (e.key === 'ArrowDown' ? 1 : suggestions.length - 1)) % suggestions.length);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        insertMention(suggestions[pick]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        setMention(null);
+        return;
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && !isTouch()) {
       e.preventDefault();
       send();
@@ -100,55 +150,54 @@ const Composer = forwardRef<ComposerHandle, Props>(function Composer(
         </div>
       )}
       <div className={`composer ${anonymous ? 'is-anon' : ''}`}>
-        {showTitle && (
-          <input
-            className="composer-title"
-            placeholder="נושא (לא חובה)"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            maxLength={150}
-          />
+        {suggestions.length > 0 && (
+          <ul className="mention-list" role="listbox">
+            {suggestions.map((n, i) => (
+              <li key={n}>
+                <button
+                  className={i === pick ? 'on' : ''}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    insertMention(n);
+                  }}
+                  role="option"
+                  aria-selected={i === pick}
+                >
+                  @{n}
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
-        <textarea
-          ref={input}
-          rows={1}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={onKey}
-          placeholder={anonymous ? 'הודעה אנונימית' : placeholder}
-          maxLength={maxLength}
-        />
-        <div className="composer-bar">
-          <div className="composer-tools">
-            {allowTitle && (
-              <button
-                type="button"
-                className={`chip-toggle ${showTitle ? 'on' : ''}`}
-                onClick={() => setShowTitle((v) => !v)}
-                title="הוספת נושא"
-              >
-                <Icon name="title" size={18} />
-                <span>נושא</span>
-              </button>
-            )}
-            {allowAnonymous && (
-              <button
-                type="button"
-                className={`chip-toggle ${anonymous ? 'on anon' : ''}`}
-                onClick={() => setAnonymous((v) => !v)}
-                title="פרסום בעילום שם"
-                aria-pressed={anonymous}
-              >
-                <Icon name={anonymous ? 'visibility_off' : 'visibility'} size={18} />
-                <span>{anonymous ? 'אנונימי' : 'בשמי'}</span>
-              </button>
-            )}
-          </div>
-          <button className="send-btn" onClick={send} disabled={!canSend} aria-label={submitLabel} title={submitLabel}>
+        <div className="composer-row">
+          {allowAnonymous && (
+            <button
+              type="button"
+              className={`anon-toggle ${anonymous ? 'on' : ''}`}
+              onClick={() => setAnonymous((v) => !v)}
+              title={anonymous ? 'שולח/ת בעילום שם. לחיצה לשליחה בשמך' : 'שליחה בעילום שם'}
+              aria-pressed={anonymous}
+            >
+              <Icon name="visibility_off" size={20} />
+            </button>
+          )}
+          <textarea
+            ref={input}
+            rows={1}
+            value={text}
+            onChange={(e) => onChange(e.target.value, e.target.selectionStart)}
+            onKeyDown={onKey}
+            onBlur={() => setTimeout(() => setMention(null), 150)}
+            placeholder={anonymous ? 'הודעה בעילום שם' : placeholder}
+            maxLength={maxLength}
+            aria-label={placeholder}
+          />
+          <button className="send-btn" onClick={send} disabled={!canSend} aria-label="שליחה" title="שליחה">
             <Icon name="send" filled size={20} />
           </button>
         </div>
       </div>
+      {anonymous && <div className="anon-hint">ההודעה תופיע בשם "אנונימי". אף אחד, כולל המנהלים, לא יראה מי שלח.</div>}
     </div>
   );
 });

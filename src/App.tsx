@@ -1,22 +1,19 @@
-import { useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useParams } from 'react-router-dom';
 import { useApp } from './AppContext';
 import { isConfigured, supabase, SITE_NAME } from './supabase';
 import Layout from './components/Layout';
 import Icon from './components/Icon';
 import AuthPage from './pages/AuthPage';
-import HomePage from './pages/HomePage';
-import SpacePage from './pages/SpacePage';
+import RoomPage from './pages/RoomPage';
 import DmPage from './pages/DmPage';
 import ProfilePage from './pages/ProfilePage';
 import SettingsPage from './pages/SettingsPage';
-import MembersPage from './pages/MembersPage';
 import SearchPage from './pages/SearchPage';
 import AdminPage from './pages/AdminPage';
 import NewPasswordPage from './pages/NewPasswordPage';
 
 export default function App() {
-  const { session, loading, me, isAdmin, recovering } = useApp();
+  const { session, loading, me, isAdmin, recovering, schemaOutdated } = useApp();
 
   if (!isConfigured) {
     return (
@@ -56,21 +53,39 @@ export default function App() {
     );
   }
 
+  if (schemaOutdated) {
+    return (
+      <div className="auth-screen">
+        <div className="auth-card">
+          <span className="status-icon"><Icon name="settings" size={32} /></span>
+          <h1 className="auth-title">המערכת בעדכון</h1>
+          <p className="auth-sub">
+            {isAdmin
+              ? 'יש להריץ את הקובץ supabase/schema.sql המעודכן ב-Supabase (SQL Editor ← Run) ואז לרענן את הדף.'
+              : 'האתר מתעדכן כרגע. נסו שוב בעוד כמה דקות.'}
+          </p>
+          <div className="auth-actions">
+            <span />
+            <button className="btn filled" onClick={() => window.location.reload()}>רענון</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <Routes>
       <Route element={<Layout />}>
-        <Route index element={<HomePage />} />
-        <Route path="space/:spaceId" element={<SpacePage />} />
-        <Route path="space/:spaceId/t/:threadId" element={<SpacePage />} />
+        <Route index element={<RoomPage />} />
+        <Route path="room/:roomId" element={<RoomPage />} />
         <Route path="dm/:convId" element={<DmPage />} />
         <Route path="u/:userId" element={<ProfilePage />} />
         <Route path="settings" element={<SettingsPage />} />
-        <Route path="members" element={<MembersPage />} />
         <Route path="search" element={<SearchPage />} />
         <Route path="admin" element={isAdmin ? <AdminPage /> : <Navigate to="/" />} />
-        {/* v1 links */}
-        <Route path="c/:spaceId" element={<LegacySpace />} />
-        <Route path="t/:threadId" element={<LegacyThread />} />
+        {/* links from earlier versions */}
+        <Route path="space/:roomId/*" element={<LegacyRoom />} />
+        <Route path="c/:roomId" element={<LegacyRoom />} />
         <Route path="profile" element={<Navigate to="/settings" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
@@ -78,17 +93,10 @@ export default function App() {
   );
 }
 
-function LegacySpace() {
-  return <Navigate to={`/space/${useParams().spaceId}`} replace />;
-}
-
-function LegacyThread() {
-  const id = useParams().threadId;
-  const [target, setTarget] = useState<string | null>(null);
-  useEffect(() => {
-    supabase.from('threads').select('channel_id').eq('id', Number(id)).maybeSingle().then(({ data }) => {
-      setTarget(data ? `/space/${data.channel_id}/t/${id}` : '/');
-    });
-  }, [id]);
-  return target ? <Navigate to={target} replace /> : null;
+function LegacyRoom() {
+  const { rooms } = useApp();
+  const id = Number(useParams().roomId);
+  const room = rooms.find((r) => r.id === id);
+  if (rooms.length === 0) return null;
+  return <Navigate to={room && !room.is_main ? `/room/${id}` : '/'} replace />;
 }
