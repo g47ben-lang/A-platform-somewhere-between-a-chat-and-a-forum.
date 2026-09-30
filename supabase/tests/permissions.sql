@@ -307,6 +307,34 @@ select pg_temp.check((select count(*) = 0 from dm_reactions), 'outsiders cannot 
 select pg_temp.denied($$select toggle_dm_reaction((select min(id) from dm_messages), '👍')$$, 'outsiders cannot react in DMs');
 reset role;
 
+-- ===== Pre-approved emails & content rules =====
+insert into auth.users (id, email) values ('00000000-0000-0000-0000-0000000000e1', 'waiting@x.com');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+select pg_temp.denied($$select * from add_preapproved('[{"email":"x@x.com"}]'::jsonb)$$, 'only admins pre-approve');
+select pg_temp.check((select count(*) = 0 from preapproved_emails), 'members cannot read the pre-approved list');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+select pg_temp.check((select count(*) = 4 from add_preapproved('[
+  {"email":" New@X.com ","name":"בחור חדש"},
+  {"email":"waiting@x.com"},
+  {"email":"bob@x.com"},
+  {"email":"not-an-email"},
+  {"email":"other@y.org"}]'::jsonb)), 'invalid lines are skipped');
+select pg_temp.check((select status = 'active' from profiles where id = '00000000-0000-0000-0000-0000000000e1'), 'pending account on the list is let in');
+select pg_temp.check((select count(*) = 3 and bool_and(email = lower(email)) from preapproved_emails), 'list stored lower-case');
+reset role;
+insert into auth.users (id, email, raw_user_meta_data) values ('00000000-0000-0000-0000-0000000000e2', 'new@x.com', '{}');
+insert into auth.users (id, email, raw_user_meta_data) values ('00000000-0000-0000-0000-0000000000e3', 'stranger@x.com', '{"terms_accepted_at":"2026-01-01"}');
+select pg_temp.check((select status = 'active' and display_name = 'בחור חדש' and terms_accepted_at is null from profiles where id = '00000000-0000-0000-0000-0000000000e2'), 'pre-approved sign-up is active at once, with the given name');
+select pg_temp.check((select used_at is not null from preapproved_emails where email = 'new@x.com'), 'used pre-approval is marked');
+select pg_temp.check((select status = 'pending' and terms_accepted_at is not null from profiles where id = '00000000-0000-0000-0000-0000000000e3'), 'others still wait; terms accepted at sign-up recorded');
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000e2');
+update profiles set terms_accepted_at = '2000-01-01' where id = auth.uid();
+select pg_temp.check((select terms_accepted_at > now() - interval '1 minute' from profiles where id = auth.uid()), 'member records acceptance, stamped now');
+update profiles set terms_accepted_at = null where id = auth.uid();
+select pg_temp.check((select terms_accepted_at is not null from profiles where id = auth.uid()), 'acceptance cannot be removed');
+reset role;
+
 -- ===== Bans =====
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
 update profiles set status = 'banned' where id = '00000000-0000-0000-0000-00000000000c';

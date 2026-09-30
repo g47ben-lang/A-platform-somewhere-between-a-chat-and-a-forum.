@@ -13,6 +13,7 @@ import SearchPage from './pages/SearchPage';
 import AdminPage from './pages/AdminPage';
 import NewPasswordPage from './pages/NewPasswordPage';
 import StarredPage from './pages/StarredPage';
+import TermsGate from './pages/TermsGate';
 
 export default function App() {
   const { session, loading, me, isAdmin, recovering, schemaOutdated } = useApp();
@@ -56,6 +57,7 @@ export default function App() {
   }
 
   if (schemaOutdated) return <SchemaOutdated detail={schemaOutdated} isAdmin={isAdmin} />;
+  if (!me.terms_accepted_at) return <TermsGate />;
 
   return (
     <Routes>

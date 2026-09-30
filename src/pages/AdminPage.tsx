@@ -10,8 +10,9 @@ import { useFeedback } from '../components/Feedback';
 import Icon from '../components/Icon';
 import { useProfileCard } from '../components/ProfileCard';
 import RoomDialog from '../components/RoomDialog';
+import PreapprovedAdmin from '../components/PreapprovedAdmin';
 
-type Tab = 'members' | 'anonymous' | 'rooms' | 'media';
+type Tab = 'members' | 'preapproved' | 'anonymous' | 'rooms' | 'media';
 type ProfilePatch = Partial<Pick<Profile, 'status' | 'role' | 'accept_anonymous' | 'can_send_anonymous'>>;
 
 export default function AdminPage() {
@@ -91,6 +92,9 @@ export default function AdminPage() {
           </button>
           <button className={tab === 'media' ? 'on' : ''} onClick={() => setTab('media')} role="tab">
             <Icon name="add_photo_alternate" size={20} /> מדיה
+          </button>
+          <button className={tab === 'preapproved' ? 'on' : ''} onClick={() => setTab('preapproved')} role="tab">
+            <Icon name="check" size={20} /> אישור מראש
           </button>
         </div>
 
@@ -217,6 +221,7 @@ export default function AdminPage() {
         )}
 
         {tab === 'media' && <MediaAdmin />}
+        {tab === 'preapproved' && <PreapprovedAdmin />}
 
         {tab === 'rooms' && (
           <section className="card-section">

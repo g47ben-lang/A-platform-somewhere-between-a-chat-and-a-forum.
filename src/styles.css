@@ -979,3 +979,9 @@ button.author:hover, .title-link:hover { text-decoration: underline; }
   .b-row.theirs .b-toolbar { right: 0; }
   .b-row.mine .b-toolbar { left: 0; }
 }
+
+/* Content rules & pre-approval */
+.terms-box { padding: 14px 16px; border-radius: 12px; border: 1px solid var(--divider); background: var(--surface-2); font-size: 14px; line-height: 1.6; }
+.terms-box ul { margin: 6px 0 0; padding-inline-start: 20px; }
+.parsed-list { list-style: none; margin: 0; padding: 8px 12px; max-height: 200px; overflow-y: auto; border: 1px solid var(--divider); border-radius: 8px; font-size: 13px; }
+.parsed-list li { padding: 2px 0; }

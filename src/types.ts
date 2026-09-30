@@ -10,6 +10,7 @@ export interface Profile {
   accept_anonymous: boolean;
   can_send_anonymous: boolean;
   avatar_path: string | null;
+  terms_accepted_at: string | null;
   created_at: string;
 }
 

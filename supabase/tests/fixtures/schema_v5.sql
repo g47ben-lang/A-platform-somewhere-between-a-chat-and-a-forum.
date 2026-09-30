@@ -1,5 +1,5 @@
 -- =====================================================================
--- Community chat schema for Supabase (v6).
+-- Community chat schema for Supabase (v5).
 -- Run in the Supabase dashboard: SQL Editor -> New query -> paste -> Run.
 -- Idempotent: safe to re-run. Upgrades v1/v2 installs in place without losing data
 -- (v2 threads are converted into chat messages inside their room).
@@ -45,18 +45,8 @@ alter table profiles add column if not exists avatar_path text;  -- private buck
 alter table profiles drop constraint if exists profiles_avatar_path;
 alter table profiles add constraint profiles_avatar_path
   check (avatar_path is null or avatar_path ~ '^a/[0-9a-f-]{36}\.(jpg|jpeg|png|webp)$');
-alter table profiles add column if not exists terms_accepted_at timestamptz;  -- NetFree content rules
 alter table profiles drop constraint if exists profiles_bio_len;
 alter table profiles add constraint profiles_bio_len check (char_length(bio) <= 500);
-
--- Emails the admin approved in advance: signing up with one skips the waiting list. Nobody is notified.
-create table if not exists preapproved_emails (
-  email         text primary key check (email = lower(email)),
-  display_name  text check (char_length(display_name) <= 40),
-  added_by      uuid references profiles on delete set null,
-  added_at      timestamptz not null default now(),
-  used_at       timestamptz
-);
 
 -- ---------- Rooms ----------
 create table if not exists channels (
@@ -338,21 +328,15 @@ create or replace function handle_new_user() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare
   first_user boolean;
-  pre preapproved_emails;
 begin
   select not exists (select 1 from profiles) into first_user;
-  select * into pre from preapproved_emails where email = lower(new.email);
-  insert into profiles (id, display_name, status, role, terms_accepted_at)
+  insert into profiles (id, display_name, status, role)
   values (
     new.id,
-    left(coalesce(nullif(trim(new.raw_user_meta_data ->> 'display_name'), ''), pre.display_name, split_part(new.email, '@', 1)), 40),
-    case when first_user or pre.email is not null then 'active'::member_status else 'pending'::member_status end,
-    case when first_user then 'admin'::member_role  else 'member'::member_role  end,
-    case when new.raw_user_meta_data ? 'terms_accepted_at' then now() end
+    left(coalesce(nullif(trim(new.raw_user_meta_data ->> 'display_name'), ''), split_part(new.email, '@', 1)), 40),
+    case when first_user then 'active'::member_status else 'pending'::member_status end,
+    case when first_user then 'admin'::member_role  else 'member'::member_role  end
   );
-  if pre.email is not null then
-    update preapproved_emails set used_at = now() where email = pre.email;
-  end if;
   return new;
 end $$;
 
@@ -376,14 +360,6 @@ begin
     new.display_name := old.display_name;
     new.bio          := old.bio;
     new.avatar_path  := old.avatar_path;
-  end if;
-  -- The content-rules acceptance can only be recorded (once, by the member, stamped now), never removed.
-  if auth.uid() is not null then
-    if old.terms_accepted_at is not null or auth.uid() <> old.id then
-      new.terms_accepted_at := old.terms_accepted_at;
-    elsif new.terms_accepted_at is not null then
-      new.terms_accepted_at := now();
-    end if;
   end if;
   new.id := old.id;
   new.created_at := old.created_at;
@@ -563,42 +539,6 @@ begin
   insert into channel_reads (user_id, channel_id, last_read_at) values (auth.uid(), p_channel, m.created_at)
     on conflict (user_id, channel_id) do update set last_read_at = excluded.last_read_at;
   return m;
-end $$;
-
--- Admin: approve a list of emails in advance. Existing pending accounts with those emails are let in now;
--- the rest are let in the moment they sign up. Nothing is sent to anyone.
-create or replace function add_preapproved(p_entries jsonb)
-returns table (addr text, result text)
-language plpgsql security definer set search_path = public, auth as $$
-declare
-  e jsonb;
-  em text;
-  nm text;
-  uid uuid;
-  st member_status;
-begin
-  if not is_admin() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  for e in select * from jsonb_array_elements(coalesce(p_entries, '[]'::jsonb)) loop
-    em := lower(trim(e ->> 'email'));
-    nm := left(nullif(trim(e ->> 'name'), ''), 40);
-    continue when em is null or em !~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$';
-    uid := null;
-    st := null;
-    select u.id, p.status into uid, st from auth.users u join profiles p on p.id = u.id where lower(u.email) = em limit 1;
-    if uid is null then
-      insert into preapproved_emails as x (email, display_name, added_by) values (em, nm, auth.uid())
-        on conflict (email) do update set display_name = coalesce(excluded.display_name, x.display_name);
-      addr := em; result := 'added';
-    elsif st = 'pending' then
-      update profiles set status = 'active' where id = uid;
-      insert into preapproved_emails as x (email, display_name, added_by, used_at) values (em, nm, auth.uid(), now())
-        on conflict (email) do update set used_at = now();
-      addr := em; result := 'activated';
-    else
-      addr := em; result := case when st = 'banned' then 'banned' else 'member' end;
-    end if;
-    return next;
-  end loop;
 end $$;
 
 -- Pin board of a room. Any member may pin; announcement rooms only by mods.
@@ -840,8 +780,6 @@ language sql stable security definer set search_path = public as $$
   ) s;
 $$;
 
-revoke execute on function add_preapproved(jsonb) from anon, public;
-grant execute on function add_preapproved(jsonb) to authenticated;
 revoke execute on function create_room, send_message, mark_room_read, mark_room_unread, set_message_pinned, my_rooms,
   post_wall, start_dm, send_dm, toggle_dm_reaction, mark_dm_read, mark_dm_unread, set_dm_closed, my_conversations,
   member_stats from anon, public;
@@ -856,7 +794,6 @@ alter table messages         enable row level security;
 alter table channel_reads    enable row level security;
 alter table reactions        enable row level security;
 alter table stars            enable row level security;
-alter table preapproved_emails enable row level security;
 alter table message_likes    enable row level security;
 alter table dm_reactions     enable row level security;
 alter table anon_authors     enable row level security;
@@ -916,12 +853,6 @@ create policy likes_insert on message_likes for insert with check (
 );
 drop policy if exists likes_delete on message_likes;
 create policy likes_delete on message_likes for delete using (user_id = auth.uid());
-
--- pre-approved emails: admins only (adding goes through add_preapproved)
-drop policy if exists preapproved_admin_select on preapproved_emails;
-create policy preapproved_admin_select on preapproved_emails for select using (is_admin());
-drop policy if exists preapproved_admin_delete on preapproved_emails;
-create policy preapproved_admin_delete on preapproved_emails for delete using (is_admin());
 
 drop policy if exists stars_own on stars;
 create policy stars_own on stars for all using (user_id = auth.uid()) with check (user_id = auth.uid());
