@@ -736,3 +736,8 @@ begin
     end;
   end loop;
 end $$;
+
+-- ---------- Refresh the API ----------
+-- Tell the Supabase REST API (PostgREST) to reload its schema cache now, so new functions are
+-- available immediately instead of returning "function not found" for a while.
+notify pgrst, 'reload schema';

@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Navigate, Route, Routes, useParams } from 'react-router-dom';
 import { useApp } from './AppContext';
 import { isConfigured, supabase, SITE_NAME } from './supabase';
@@ -53,25 +54,7 @@ export default function App() {
     );
   }
 
-  if (schemaOutdated) {
-    return (
-      <div className="auth-screen">
-        <div className="auth-card">
-          <span className="status-icon"><Icon name="settings" size={32} /></span>
-          <h1 className="auth-title">המערכת בעדכון</h1>
-          <p className="auth-sub">
-            {isAdmin
-              ? 'יש להריץ את הקובץ supabase/schema.sql המעודכן ב-Supabase (SQL Editor ← Run) ואז לרענן את הדף.'
-              : 'האתר מתעדכן כרגע. נסו שוב בעוד כמה דקות.'}
-          </p>
-          <div className="auth-actions">
-            <span />
-            <button className="btn filled" onClick={() => window.location.reload()}>רענון</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  if (schemaOutdated) return <SchemaOutdated detail={schemaOutdated} isAdmin={isAdmin} />;
 
   return (
     <Routes>
@@ -99,4 +82,34 @@ function LegacyRoom() {
   const room = rooms.find((r) => r.id === id);
   if (rooms.length === 0) return null;
   return <Navigate to={room && !room.is_main ? `/room/${id}` : '/'} replace />;
+}
+
+/** Shown when the site is newer than the database. Rechecks on its own every 10 seconds. */
+function SchemaOutdated({ detail, isAdmin }: { detail: string; isAdmin: boolean }) {
+  const { reloadRooms, me } = useApp();
+  useEffect(() => {
+    const t = setInterval(reloadRooms, 10000);
+    return () => clearInterval(t);
+  }, [reloadRooms]);
+  return (
+    <div className="auth-screen">
+      <div className="auth-card">
+        <span className="status-icon"><Icon name="settings" size={32} /></span>
+        <h1 className="auth-title">המערכת בעדכון</h1>
+        {isAdmin ? (
+          <p className="auth-sub">
+            האתר עודכן, אבל מסד הנתונים עדיין בגרסה הקודמת. יש להדביק את כל הקובץ <code>supabase/schema.sql</code> העדכני
+            ב-Supabase ← SQL Editor ← Run. אם מופיעה שגיאה אדומה, צלמו אותה. הדף ייפתח לבד תוך כמה שניות מסיום העדכון.
+          </p>
+        ) : (
+          <p className="auth-sub">האתר מתעדכן כרגע. הדף ייפתח לבד כשהעדכון יסתיים.</p>
+        )}
+        <pre className="error-detail" dir="ltr">{detail}{'\n'}user: {me?.display_name} ({me?.role})</pre>
+        <div className="auth-actions">
+          <span />
+          <button className="btn filled" onClick={() => window.location.reload()}>רענון</button>
+        </div>
+      </div>
+    </div>
+  );
 }

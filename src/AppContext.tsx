@@ -11,8 +11,8 @@ interface AppState {
   me: Profile | null;
   profiles: Map<string, Profile>;
   rooms: Room[];
-  /** The database is older than this app (schema.sql not re-run yet). */
-  schemaOutdated: boolean;
+  /** Set (to the server's error text) when the database is older than this app. */
+  schemaOutdated: string | null;
   mainRoom: Room | undefined;
   conversations: Conversation[];
   online: Set<string>;
@@ -41,7 +41,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<Profile | null>(null);
   const [profiles, setProfiles] = useState<Map<string, Profile>>(new Map());
   const [rooms, setRooms] = useState<Room[]>([]);
-  const [schemaOutdated, setSchemaOutdated] = useState(false);
+  const [schemaOutdated, setSchemaOutdated] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [online, setOnline] = useState<Set<string>>(new Set());
   const [recovering, setRecovering] = useState(false);
@@ -82,8 +82,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const reloadRooms = useCallback(async () => {
     const { data, error } = await supabase.rpc('my_rooms');
-    // PGRST202 = function not found: the SQL update has not been applied yet.
-    setSchemaOutdated(error?.code === 'PGRST202' || /my_rooms/.test(error?.message ?? ''));
+    // PGRST202 = function not found: the SQL update has not been applied (or the API cache is stale).
+    const outdated = error && (error.code === 'PGRST202' || /my_rooms/.test(error.message ?? ''));
+    setSchemaOutdated(outdated ? `${error.code ?? ''} ${error.message ?? ''}`.trim() : null);
     if (data) setRooms(data as Room[]);
   }, []);
 
