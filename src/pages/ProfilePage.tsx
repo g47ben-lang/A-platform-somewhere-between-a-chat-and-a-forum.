@@ -3,7 +3,8 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useApp } from '../AppContext';
 import { supabase } from '../supabase';
 import { subscribe } from '../lib/realtime';
-import { errorText, fullDate, levelFor, roleTag, timeAgo } from '../lib/format';
+import { colorFor, errorText, fullDate, levelFor, roleTag, timeAgo } from '../lib/format';
+import { removeFile, uploadCover, useSignedUrl } from '../lib/media';
 import type { MemberStats, WallPost } from '../types';
 import Avatar from '../components/Avatar';
 import Composer from '../components/Composer';
@@ -14,11 +15,29 @@ import { startConversation } from '../components/NewChatDialog';
 
 export default function ProfilePage() {
   const userId = useParams().userId!;
-  const { me, profiles, online, canRemove, ownerId, reloadConversations } = useApp();
+  const { me, profiles, online, canRemove, ownerId, reloadConversations, reloadProfiles, reloadMe } = useApp();
   const { confirm, toast } = useFeedback();
   const navigate = useNavigate();
   const profile = profiles.get(userId);
   const isMe = me?.id === userId;
+  const coverUrl = useSignedUrl(profile?.cover_path);
+  const [coverBusy, setCoverBusy] = useState(false);
+
+  async function setCover(file: File | null) {
+    const old = profile?.cover_path;
+    setCoverBusy(true);
+    try {
+      const path = file ? await uploadCover(file) : null;
+      const { error } = await supabase.from('profiles').update({ cover_path: path }).eq('id', userId);
+      if (error) throw error;
+      if (old) removeFile(old);
+      await Promise.all([reloadProfiles(), reloadMe()]);
+    } catch (err) {
+      toast(errorText(err), 'error');
+    } finally {
+      setCoverBusy(false);
+    }
+  }
 
   const [stats, setStats] = useState<MemberStats | null>(null);
   const [rank, setRank] = useState<number | null>(null);
@@ -91,7 +110,21 @@ export default function ProfilePage() {
   return (
     <div className="pane scroll-pane">
       <div className="page narrow-page">
-        <section className="profile-card">
+        <div
+          className="profile-cover"
+          style={coverUrl ? { backgroundImage: `url(${coverUrl})` } : { background: `linear-gradient(135deg, ${colorFor(userId)}, var(--primary))` }}
+        >
+          {isMe && (
+            <div className="cover-actions">
+              <label className={`btn tonal small ${coverBusy ? 'disabled' : ''}`}>
+                <Icon name="photo_camera" size={16} /> {profile.cover_path ? 'החלפת רקע' : 'הוספת רקע'}
+                <input type="file" accept="image/*" hidden disabled={coverBusy} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) setCover(f); }} />
+              </label>
+              {profile.cover_path && <button className="btn tonal small" disabled={coverBusy} onClick={() => setCover(null)}>הסרה</button>}
+            </div>
+          )}
+        </div>
+        <section className="profile-card with-cover">
           <Avatar id={profile.id} name={profile.display_name} size={96} online={online.has(profile.id)} />
           <div className="profile-main">
             <h1>{profile.display_name}</h1>

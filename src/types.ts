@@ -11,6 +11,7 @@ export interface Profile {
   can_send_anonymous: boolean;
   avatar_path: string | null;
   terms_accepted_at: string | null;
+  cover_path: string | null;
   /** How the account got in without waiting for approval. */
   joined_via: 'email' | 'roster' | null;
   /** false until an admin looks at a join by roster name. */

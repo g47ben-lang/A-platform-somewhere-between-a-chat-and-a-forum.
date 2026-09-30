@@ -373,6 +373,17 @@ update profiles set join_seen = true where id = '00000000-0000-0000-0000-0000000
 select pg_temp.check((select join_seen from profiles where id = '00000000-0000-0000-0000-0000000000f2'), 'admin marks a join as seen');
 reset role;
 
+-- ===== Profile background =====
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+update profiles set cover_path = 'c/11111111-1111-1111-1111-111111111111.jpg' where id = auth.uid();
+select pg_temp.check((select cover_path is not null from profiles where id = auth.uid()), 'member sets his profile background');
+select pg_temp.denied($$update profiles set cover_path = 'm/x.jpg' where id = auth.uid()$$, 'background must be a stored c/ image');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+update profiles set cover_path = null where id = '00000000-0000-0000-0000-00000000000b';
+reset role;
+select pg_temp.check((select cover_path is not null from profiles where id = '00000000-0000-0000-0000-00000000000b'), 'nobody else changes a member''s background');
+
 -- ===== Contact the management =====
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
 select send_feedback('bug', 'הכפתור לא עובד') as fb_id \gset

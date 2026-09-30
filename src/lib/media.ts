@@ -139,6 +139,23 @@ export async function uploadAttachment(file: File): Promise<Attachment> {
 }
 
 /** Square-crops and uploads a profile photo; returns the stored path. */
+/** Profile background: cropped to a 3:1 banner, at most 1500px wide. */
+export async function uploadCover(file: File): Promise<string> {
+  if (!file.type.startsWith('image/')) throw new Error('יש לבחור קובץ תמונה');
+  const img = await loadImage(file);
+  const w = img.naturalWidth;
+  const h = Math.min(img.naturalHeight, Math.round(w / 3));
+  const sw = Math.round(h * 3);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.min(1500, sw);
+  canvas.height = Math.round(canvas.width / 3);
+  canvas.getContext('2d')!.drawImage(img, (w - sw) / 2, (img.naturalHeight - h) / 2, sw, h, 0, 0, canvas.width, canvas.height);
+  URL.revokeObjectURL(img.src);
+  const path = `c/${crypto.randomUUID()}.jpg`;
+  await put(path, await toJpeg(canvas, 0.85), 'image/jpeg');
+  return path;
+}
+
 export async function uploadAvatar(file: File): Promise<string> {
   if (!file.type.startsWith('image/')) throw new Error('יש לבחור קובץ תמונה');
   const img = await loadImage(file);

@@ -1041,3 +1041,11 @@ button.author:hover, .title-link:hover { text-decoration: underline; }
 .chip-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 8px; border: 1px solid var(--outline); background: transparent; color: var(--text-2); font: inherit; font-size: 14px; cursor: pointer; }
 .chip.on { background: var(--primary-container, #d3e3fd); border-color: transparent; color: var(--text); font-weight: 500; }
+
+/* Profile background (cover) */
+.profile-cover { position: relative; aspect-ratio: 3 / 1; max-height: 220px; width: 100%; border-radius: 16px; background-size: cover; background-position: center; }
+.cover-actions { position: absolute; bottom: 10px; inset-inline-end: 10px; display: flex; gap: 6px; }
+.cover-actions .btn { background: rgba(255, 255, 255, 0.9); color: #1f1f1f; cursor: pointer; }
+.cover-actions .btn.disabled { opacity: .6; pointer-events: none; }
+.profile-card.with-cover { padding-top: 12px; padding-inline-start: 16px; }
+.profile-card.with-cover > :first-child { margin-top: -60px; border-radius: 50%; box-shadow: 0 0 0 4px var(--surface); flex-shrink: 0; }

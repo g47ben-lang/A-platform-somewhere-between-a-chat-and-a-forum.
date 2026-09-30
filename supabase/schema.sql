@@ -58,6 +58,9 @@ alter table profiles drop constraint if exists profiles_avatar_path;
 alter table profiles add constraint profiles_avatar_path
   check (avatar_path is null or avatar_path ~ '^a/[0-9a-f-]{36}\.(jpg|jpeg|png|webp)$');
 alter table profiles add column if not exists terms_accepted_at timestamptz;  -- NetFree content rules
+alter table profiles add column if not exists cover_path text;  -- profile background image, c/<uuid>.jpg
+alter table profiles drop constraint if exists profiles_cover_path;
+alter table profiles add constraint profiles_cover_path check (cover_path is null or cover_path ~ '^c/[0-9a-f-]{36}\.jpg$');
 -- How the account got in without waiting: 'email' (pre-approved email) or 'roster' (name on the yeshiva list).
 -- Roster joins start with join_seen = false so the admin gets a heads-up.
 alter table profiles add column if not exists joined_via text check (joined_via in ('email', 'roster'));
@@ -534,6 +537,7 @@ begin
     new.display_name := old.display_name;
     new.bio          := old.bio;
     new.avatar_path  := old.avatar_path;
+    new.cover_path   := old.cover_path;
   end if;
   -- The content-rules acceptance can only be recorded (once, by the member, stamped now), never removed.
   if auth.uid() is not null then
@@ -1369,7 +1373,8 @@ begin
   execute $p$create policy media_upload on storage.objects for insert to authenticated
              with check (bucket_id = 'media' and public.is_active()
                          and (name ~ '^m/[0-9a-f-]{36}\.(jpg|jpeg|png|webp|gif|mp4|webm|mov)$'
-                              or name ~ '^a/[0-9a-f-]{36}\.(jpg|jpeg|png|webp)$'))$p$;
+                              or name ~ '^a/[0-9a-f-]{36}\.(jpg|jpeg|png|webp)$'
+                              or name ~ '^c/[0-9a-f-]{36}\.jpg$'))$p$;
 end $$;
 
 -- ---------- Refresh the API ----------
