@@ -1,15 +1,15 @@
 -- =====================================================================
--- Community chat schema for Supabase (v4).
+-- Community chat schema for Supabase (v3).
 -- Run in the Supabase dashboard: SQL Editor -> New query -> paste -> Run.
 -- Idempotent: safe to re-run. Upgrades v1/v2 installs in place without losing data
 -- (v2 threads are converted into chat messages inside their room).
 --
 -- Model:
 --   rooms (table `channels`): one main room (is_main) + small topic rooms members create
---   messages: flat live chat per room: quote-replies, emoji reactions, photos/videos, pins, stars
+--   messages: flat live chat per room, with quote-replies and likes
 --   direct conversations (dm_*), optionally anonymous on the initiator's side
 --   profile walls (public messages to a member, optionally anonymous)
---   reputation = reactions received from others * 5 + messages sent (anonymous content never counts)
+--   reputation = likes received * 5 + messages sent (anonymous content never counts)
 --
 -- Anonymity: anonymous rows store NO author id. The real author is kept in `anon_authors`,
 -- readable only by that author. Anonymous DM initiators are hidden via dm_participants.hidden.
@@ -40,10 +40,6 @@ create table if not exists profiles (
 alter table profiles add column if not exists bio text;
 alter table profiles add column if not exists accept_anonymous boolean not null default true;
 alter table profiles add column if not exists can_send_anonymous boolean not null default true;
-alter table profiles add column if not exists avatar_path text;  -- private bucket "media", a/<uuid>.<ext>
-alter table profiles drop constraint if exists profiles_avatar_path;
-alter table profiles add constraint profiles_avatar_path
-  check (avatar_path is null or avatar_path ~ '^a/[0-9a-f-]{36}\.(jpg|jpeg|png|webp)$');
 alter table profiles drop constraint if exists profiles_bio_len;
 alter table profiles add constraint profiles_bio_len check (char_length(bio) <= 500);
 
@@ -83,13 +79,6 @@ do $$ begin
     alter table messages alter column thread_id drop not null;
   end if;
 end $$;
-alter table messages add column if not exists attachment jsonb;           -- {path,type,width,height,size,duration}
-alter table messages add column if not exists forwarded boolean not null default false;
-alter table messages add column if not exists pinned_at timestamptz;
-alter table messages add column if not exists pinned_by uuid references profiles on delete set null;
-alter table messages drop constraint if exists messages_body_len;
-alter table messages add constraint messages_body_len
-  check (deleted or (char_length(body) <= 4000 and (char_length(body) > 0 or attachment is not null)));
 create index if not exists messages_channel_created_idx on messages (channel_id, created_at desc);
 create index if not exists messages_author_idx on messages (author_id);
 
@@ -100,32 +89,23 @@ create table if not exists channel_reads (
   primary key (user_id, channel_id)
 );
 
--- ---------- Emoji reactions ----------
+-- ---------- Likes ----------
 create table if not exists reactions (
   message_id  bigint not null references messages on delete cascade,
   user_id     uuid   not null references profiles on delete cascade,
-  emoji       text   not null default '👍',
+  emoji       text   not null default 'like',
   created_at  timestamptz not null default now(),
   primary key (message_id, user_id, emoji)
 );
--- v2/v3 stored a single "like"; it becomes 👍.
+-- v1 allowed arbitrary emoji; a single "like" now.
+insert into reactions (message_id, user_id, emoji, created_at)
+  select message_id, user_id, 'like', min(created_at) from reactions where emoji <> 'like' group by 1, 2
+  on conflict do nothing;
+delete from reactions where emoji <> 'like';
 alter table reactions drop constraint if exists reactions_emoji_check;
 alter table reactions drop constraint if exists reactions_like_only;
-alter table reactions drop constraint if exists reactions_emoji_len;
-update reactions r set emoji = '👍' where emoji = 'like'
-  and not exists (select 1 from reactions x where x.message_id = r.message_id and x.user_id = r.user_id and x.emoji = '👍');
-delete from reactions where emoji = 'like';
-alter table reactions add constraint reactions_emoji_len check (char_length(emoji) between 1 and 16);
-alter table reactions alter column emoji set default '👍';
-
--- Personal "starred" messages (rooms and private chats).
-create table if not exists stars (
-  user_id     uuid   not null references profiles on delete cascade,
-  kind        text   not null check (kind in ('room', 'dm')),
-  item_id     bigint not null,
-  created_at  timestamptz not null default now(),
-  primary key (user_id, kind, item_id)
-);
+alter table reactions add constraint reactions_like_only check (emoji = 'like');
+alter table reactions alter column emoji set default 'like';
 
 -- ---------- Anonymous authorship (private) ----------
 create table if not exists anon_authors (
@@ -176,22 +156,6 @@ create table if not exists dm_messages (
   constraint dm_messages_body_len check (deleted or char_length(body) between 1 and 4000)
 );
 create index if not exists dm_messages_conv_idx on dm_messages (conversation_id, id desc);
-alter table dm_messages add column if not exists reply_to bigint references dm_messages on delete set null;
-alter table dm_messages add column if not exists attachment jsonb;
-alter table dm_messages add column if not exists forwarded boolean not null default false;
-alter table dm_messages drop constraint if exists dm_messages_body_len;
-alter table dm_messages add constraint dm_messages_body_len
-  check (deleted or (char_length(body) <= 4000 and (char_length(body) > 0 or attachment is not null)));
-
--- DM reactions. The anonymous (hidden) side reacts with user_id NULL, so a reaction never unmasks it.
-create table if not exists dm_reactions (
-  message_id  bigint not null references dm_messages on delete cascade,
-  user_id     uuid   references profiles on delete cascade,
-  hidden      boolean not null default false,
-  emoji       text   not null check (char_length(emoji) between 1 and 16),
-  created_at  timestamptz not null default now()
-);
-create unique index if not exists dm_reactions_unique on dm_reactions (message_id, emoji, coalesce(user_id::text, 'hidden'));
 
 -- ---------- Main room + v2 thread migration ----------
 do $$
@@ -223,7 +187,7 @@ begin
     update anon_authors set kind = 'message', item_id = new_id where kind = 'thread' and item_id = t.id;
     if to_regclass('public.thread_likes') is not null then
       insert into reactions (message_id, user_id, emoji, created_at)
-        select new_id, l.user_id, '👍', l.created_at from thread_likes l
+        select new_id, l.user_id, 'like', l.created_at from thread_likes l
          where l.thread_id = t.id and l.user_id is distinct from t.author_id
         on conflict do nothing;
     end if;
@@ -277,16 +241,6 @@ language sql stable security definer set search_path = public as $$
   select exists (select 1 from dm_participants where conversation_id = p_conv and user_id = auth.uid() and hidden);
 $$;
 
--- Attachments are files already uploaded to the private "media" bucket under a random name.
-create or replace function valid_attachment(a jsonb) returns boolean
-language sql immutable as $$
-  select a is null or (
-    jsonb_typeof(a) = 'object'
-    and a ->> 'type' in ('image', 'video')
-    and (a ->> 'path') ~ '^m/[0-9a-f-]{36}\.(jpg|jpeg|png|webp|gif|mp4|webm|mov)$'
-  );
-$$;
-
 -- ---------- Triggers ----------
 
 -- New auth user -> profile. First user ever becomes active admin.
@@ -325,7 +279,6 @@ begin
   if auth.uid() is not null and auth.uid() <> old.id then
     new.display_name := old.display_name;
     new.bio          := old.bio;
-    new.avatar_path  := old.avatar_path;
   end if;
   new.id := old.id;
   new.created_at := old.created_at;
@@ -380,22 +333,11 @@ begin
   new.channel_id := old.channel_id;
   new.created_at := old.created_at;
   new.reply_to   := old.reply_to;
-  new.forwarded  := old.forwarded;
-  new.attachment := old.attachment;
-  -- pins change only through set_message_pinned()
-  if coalesce(current_setting('app.pinning', true), '') <> '1' and auth.uid() is not null then
-    new.pinned_at := old.pinned_at;
-    new.pinned_by := old.pinned_by;
-  end if;
   if old.deleted then
     new.deleted := true;
     new.body := '';
-    new.attachment := null;
   elsif new.deleted then
     new.body := '';
-    new.attachment := null;
-    new.pinned_at := null;
-    new.pinned_by := null;
   elsif new.body is distinct from old.body then
     if auth.uid() is not null
        and not (coalesce(old.author_id = auth.uid(), false) or owns_anon('message', old.id)) then
@@ -417,16 +359,11 @@ begin
   new.sender_id       := old.sender_id;
   new.conversation_id := old.conversation_id;
   new.created_at      := old.created_at;
-  new.reply_to        := old.reply_to;
-  new.forwarded       := old.forwarded;
-  new.attachment      := old.attachment;
   if old.deleted then
     new.deleted := true;
     new.body := '';
-    new.attachment := null;
   elsif new.deleted then
     new.body := '';
-    new.attachment := null;
   elsif new.body is distinct from old.body then
     new.edited_at := now();
   end if;
@@ -470,10 +407,7 @@ begin
   return c;
 end $$;
 
-drop function if exists send_message(bigint, text, bigint, boolean);
-create or replace function send_message(p_channel bigint, p_body text, p_reply_to bigint default null,
-                                        p_anonymous boolean default false, p_attachment jsonb default null,
-                                        p_forwarded boolean default false)
+create or replace function send_message(p_channel bigint, p_body text, p_reply_to bigint default null, p_anonymous boolean default false)
 returns messages
 language plpgsql security definer set search_path = public as $$
 declare
@@ -489,15 +423,12 @@ begin
   if coalesce(p_anonymous, false) and not can_send_anon() then
     raise exception 'אין לך הרשאה לשלוח הודעות אנונימיות' using errcode = '42501';
   end if;
-  if not valid_attachment(p_attachment) then raise exception 'קובץ מצורף לא תקין'; end if;
-  insert into messages (channel_id, author_id, anonymous, body, reply_to, attachment, forwarded)
+  insert into messages (channel_id, author_id, anonymous, body, reply_to)
   values (p_channel,
           case when p_anonymous then null else auth.uid() end,
           coalesce(p_anonymous, false),
-          trim(coalesce(p_body, '')),
-          (select id from messages where id = p_reply_to and channel_id = p_channel),
-          p_attachment,
-          coalesce(p_forwarded, false))
+          trim(p_body),
+          (select id from messages where id = p_reply_to and channel_id = p_channel))
   returning * into m;
   if p_anonymous then
     insert into anon_authors (kind, item_id, author_id) values ('message', m.id, auth.uid());
@@ -506,32 +437,6 @@ begin
     on conflict (user_id, channel_id) do update set last_read_at = excluded.last_read_at;
   return m;
 end $$;
-
--- Pin board of a room. Any member may pin; announcement rooms only by mods.
-create or replace function set_message_pinned(p_message bigint, p_pinned boolean) returns void
-language plpgsql security definer set search_path = public as $$
-declare
-  ch channels;
-begin
-  if not is_active() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  select c.* into ch from channels c join messages m on m.channel_id = c.id where m.id = p_message and not m.deleted;
-  if not found then raise exception 'ההודעה לא נמצאה'; end if;
-  if ch.admin_only_post and not is_mod() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  perform set_config('app.pinning', '1', true);
-  update messages
-     set pinned_at = case when p_pinned then now() end,
-         pinned_by = case when p_pinned then auth.uid() end
-   where id = p_message;
-  perform set_config('app.pinning', '', true);
-end $$;
-
--- "Mark as unread from here": moves my read marker to just before the message.
-create or replace function mark_room_unread(p_message bigint) returns void
-language sql security definer set search_path = public as $$
-  insert into channel_reads (user_id, channel_id, last_read_at)
-  select auth.uid(), m.channel_id, m.created_at - interval '1 millisecond' from messages m where m.id = p_message and is_active()
-  on conflict (user_id, channel_id) do update set last_read_at = excluded.last_read_at;
-$$;
 
 create or replace function mark_room_read(p_channel bigint) returns void
 language sql security definer set search_path = public as $$
@@ -630,9 +535,7 @@ begin
   return conv_id;
 end $$;
 
-drop function if exists send_dm(bigint, text);
-create or replace function send_dm(p_conv bigint, p_body text, p_reply_to bigint default null,
-                                   p_attachment jsonb default null, p_forwarded boolean default false)
+create or replace function send_dm(p_conv bigint, p_body text)
 returns dm_messages
 language plpgsql security definer set search_path = public as $$
 declare
@@ -653,43 +556,13 @@ begin
       raise exception 'המשתמש לא מקבל הודעות אנונימיות' using errcode = '42501';
     end if;
   end if;
-  if not valid_attachment(p_attachment) then raise exception 'קובץ מצורף לא תקין'; end if;
-  insert into dm_messages (conversation_id, sender_id, body, reply_to, attachment, forwarded)
-  values (p_conv, case when me.hidden then null else auth.uid() end, trim(coalesce(p_body, '')),
-          (select id from dm_messages where id = p_reply_to and conversation_id = p_conv),
-          p_attachment, coalesce(p_forwarded, false))
+  insert into dm_messages (conversation_id, sender_id, body)
+  values (p_conv, case when me.hidden then null else auth.uid() end, trim(p_body))
   returning * into m;
   update dm_conversations set last_message_at = m.created_at where id = p_conv;
   update dm_participants set last_read_at = m.created_at where conversation_id = p_conv and user_id = auth.uid();
   return m;
 end $$;
-
--- Adds or removes my reaction on a private message (the hidden side stays anonymous).
-create or replace function toggle_dm_reaction(p_message bigint, p_emoji text) returns boolean
-language plpgsql security definer set search_path = public as $$
-declare
-  me dm_participants;
-  removed int;
-begin
-  if not is_active() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  select p.* into me from dm_participants p join dm_messages m on m.conversation_id = p.conversation_id
-   where m.id = p_message and p.user_id = auth.uid();
-  if not found then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  delete from dm_reactions
-   where message_id = p_message and emoji = p_emoji
-     and ((me.hidden and user_id is null and hidden) or (not me.hidden and user_id = auth.uid()));
-  get diagnostics removed = row_count;
-  if removed > 0 then return false; end if;
-  insert into dm_reactions (message_id, user_id, hidden, emoji)
-  values (p_message, case when me.hidden then null else auth.uid() end, me.hidden, p_emoji);
-  return true;
-end $$;
-
-create or replace function mark_dm_unread(p_message bigint) returns void
-language sql security definer set search_path = public as $$
-  update dm_participants p set last_read_at = m.created_at - interval '1 millisecond'
-    from dm_messages m where m.id = p_message and p.conversation_id = m.conversation_id and p.user_id = auth.uid();
-$$;
 
 create or replace function mark_dm_read(p_conv bigint) returns void
 language sql security definer set search_path = public as $$
@@ -730,7 +603,7 @@ language sql stable security definer set search_path = public as $$
    order by c.last_message_at desc;
 $$;
 
--- Reputation: 5 per member who reacted to your message (not yourself) + 1 per message. Anonymous content never counts.
+-- Reputation: 5 per like received + 1 per message. Anonymous content never counts.
 drop function if exists member_stats();
 create function member_stats()
 returns table (id uuid, messages int, likes int, reputation int)
@@ -739,19 +612,17 @@ language sql stable security definer set search_path = public as $$
   from (
     select p.id,
       (select count(*)::int from messages m where m.author_id = p.id and not m.deleted) as messages,
-      (select count(distinct (r.message_id, r.user_id))::int from reactions r join messages m on m.id = r.message_id
-        where m.author_id = p.id and not m.deleted and r.user_id <> p.id) as likes
+      (select count(*)::int from reactions r join messages m on m.id = r.message_id
+        where m.author_id = p.id and not m.deleted) as likes
     from profiles p
     where p.status = 'active' and is_active()
   ) s;
 $$;
 
-revoke execute on function create_room, send_message, mark_room_read, mark_room_unread, set_message_pinned, my_rooms,
-  post_wall, start_dm, send_dm, toggle_dm_reaction, mark_dm_read, mark_dm_unread, set_dm_closed, my_conversations,
-  member_stats from anon, public;
-grant execute on function create_room, send_message, mark_room_read, mark_room_unread, set_message_pinned, my_rooms,
-  post_wall, start_dm, send_dm, toggle_dm_reaction, mark_dm_read, mark_dm_unread, set_dm_closed, my_conversations,
-  member_stats to authenticated;
+revoke execute on function create_room, send_message, mark_room_read, my_rooms, post_wall, start_dm, send_dm,
+  mark_dm_read, set_dm_closed, my_conversations, member_stats from anon, public;
+grant execute on function create_room, send_message, mark_room_read, my_rooms, post_wall, start_dm, send_dm,
+  mark_dm_read, set_dm_closed, my_conversations, member_stats to authenticated;
 
 -- ---------- Row Level Security ----------
 alter table profiles         enable row level security;
@@ -759,8 +630,6 @@ alter table channels         enable row level security;
 alter table messages         enable row level security;
 alter table channel_reads    enable row level security;
 alter table reactions        enable row level security;
-alter table stars            enable row level security;
-alter table dm_reactions     enable row level security;
 alter table anon_authors     enable row level security;
 alter table wall_posts       enable row level security;
 alter table dm_conversations enable row level security;
@@ -803,18 +672,13 @@ create policy channel_reads_own on channel_reads for all
 drop policy if exists reactions_select on reactions;
 create policy reactions_select on reactions for select using (is_active());
 drop policy if exists reactions_insert on reactions;
-create policy reactions_insert on reactions for insert with check (is_active() and user_id = auth.uid());
+create policy reactions_insert on reactions for insert with check (
+  is_active() and user_id = auth.uid()
+  and not exists (select 1 from messages m where m.id = message_id and m.author_id = auth.uid())
+  and not owns_anon('message', message_id)
+);
 drop policy if exists reactions_delete on reactions;
 create policy reactions_delete on reactions for delete using (user_id = auth.uid());
-
-drop policy if exists stars_own on stars;
-create policy stars_own on stars for all using (user_id = auth.uid()) with check (user_id = auth.uid());
-
--- DM reactions: visible to the conversation; written only through toggle_dm_reaction()
-drop policy if exists dm_reactions_select on dm_reactions;
-create policy dm_reactions_select on dm_reactions for select using (
-  is_active() and exists (select 1 from dm_messages m where m.id = message_id and is_dm_participant(m.conversation_id))
-);
 
 -- anonymous authorship: each author sees only their own rows; written only by the functions above
 drop policy if exists anon_authors_own on anon_authors;
@@ -862,37 +726,15 @@ end $$;
 -- ---------- Realtime ----------
 alter table reactions  replica identity full;
 alter table wall_posts replica identity full;
-alter table dm_reactions replica identity full;
 do $$
 declare t text;
 begin
-  foreach t in array array['messages', 'reactions', 'profiles', 'channels', 'wall_posts', 'dm_messages', 'dm_reactions'] loop
+  foreach t in array array['messages', 'reactions', 'profiles', 'channels', 'wall_posts', 'dm_messages'] loop
     begin
       execute format('alter publication supabase_realtime add table %I', t);
     exception when duplicate_object then null;
     end;
   end loop;
-end $$;
-
--- ---------- Media storage (photos, short videos) ----------
--- Private bucket: files are served only to approved members, through short-lived signed links.
--- File names are random and never include the uploader, so anonymous posts stay anonymous.
-do $$
-begin
-  if to_regclass('storage.buckets') is null then return; end if;  -- plain Postgres (tests)
-  insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-  values ('media', 'media', false, 20971520,
-          array['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4', 'video/webm', 'video/quicktime'])
-  on conflict (id) do update
-    set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
-  execute 'drop policy if exists media_read on storage.objects';
-  execute $p$create policy media_read on storage.objects for select to authenticated
-             using (bucket_id = 'media' and public.is_active())$p$;
-  execute 'drop policy if exists media_upload on storage.objects';
-  execute $p$create policy media_upload on storage.objects for insert to authenticated
-             with check (bucket_id = 'media' and public.is_active()
-                         and (name ~ '^m/[0-9a-f-]{36}\.(jpg|jpeg|png|webp|gif|mp4|webm|mov)$'
-                              or name ~ '^a/[0-9a-f-]{36}\.(jpg|jpeg|png|webp)$'))$p$;
 end $$;
 
 -- ---------- Refresh the API ----------

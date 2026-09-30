@@ -1,7 +1,8 @@
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { useApp } from '../AppContext';
 import { supabase } from '../supabase';
 import { errorText } from '../lib/format';
+import { uploadAvatar } from '../lib/media';
 import { notificationsEnabled, notificationsSupported, setNotificationsEnabled } from '../lib/notify';
 import Avatar from '../components/Avatar';
 import { useFeedback } from '../components/Feedback';
@@ -16,6 +17,8 @@ export default function SettingsPage() {
   const [pw, setPw] = useState({ password: '', confirm: '' });
   const [notifyOn, setNotifyOn] = useState(notificationsEnabled());
   const [busy, setBusy] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const photoInput = useRef<HTMLInputElement>(null);
 
   if (!me) return null;
 
@@ -27,6 +30,29 @@ export default function SettingsPage() {
     if (error) return toast(errorText(error), 'error');
     toast('הפרופיל נשמר');
     reloadMe();
+  }
+
+  async function setPhoto(file: File | undefined) {
+    if (!file) return;
+    setPhotoBusy(true);
+    try {
+      const path = await uploadAvatar(file);
+      const { error } = await supabase.from('profiles').update({ avatar_path: path }).eq('id', me!.id);
+      if (error) throw error;
+      await reloadMe();
+      toast('תמונת הפרופיל עודכנה');
+    } catch (err) {
+      toast(errorText(err), 'error');
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
+
+  async function removePhoto() {
+    const { error } = await supabase.from('profiles').update({ avatar_path: null }).eq('id', me!.id);
+    if (error) return toast(errorText(error), 'error');
+    await reloadMe();
+    toast('תמונת הפרופיל הוסרה');
   }
 
   async function savePassword(e: FormEvent) {
@@ -58,9 +84,22 @@ export default function SettingsPage() {
 
         <form className="settings-card" onSubmit={saveProfile}>
           <h2>פרופיל</h2>
-          <div className="row gap center">
-            <Avatar id={me.id} name={name || me.display_name} size={56} />
-            <div className="muted small" dir="ltr">{session?.user.email}</div>
+          <div className="photo-row">
+            <div className="photo-wrap">
+              <Avatar id={me.id} name={name || me.display_name} size={88} />
+              {photoBusy && <div className="photo-busy"><div className="spinner small" /></div>}
+            </div>
+            <div className="photo-actions">
+              <div className="muted small" dir="ltr">{session?.user.email}</div>
+              <div className="row gap">
+                <button type="button" className="btn tonal small" onClick={() => photoInput.current?.click()} disabled={photoBusy}>
+                  <Icon name="photo_camera" size={18} /> {me.avatar_path ? 'החלפת תמונה' : 'העלאת תמונת פרופיל'}
+                </button>
+                {me.avatar_path && <button type="button" className="btn text small danger" onClick={removePhoto}>הסרה</button>}
+              </div>
+              <span className="field-hint">התמונה נחתכת לריבוע. רק חברי הקהילה יכולים לראות אותה.</span>
+              <input ref={photoInput} type="file" accept="image/*" hidden onChange={(e) => { setPhoto(e.target.files?.[0]); e.target.value = ''; }} />
+            </div>
           </div>
           <label className="field">
             <span>שם תצוגה</span>

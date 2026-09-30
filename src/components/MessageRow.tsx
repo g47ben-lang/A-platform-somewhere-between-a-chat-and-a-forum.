@@ -58,7 +58,7 @@ export default function MessageRow({ authorId, anonymous, mine, createdAt, edite
             ) : (
               <button className="author" onClick={(e) => openCard(authorId!, e.currentTarget)}>{nameOf(authorId)}</button>
             )}
-            {author && author.role !== 'member' && <span className="role-tag">{author.role === 'admin' ? 'מנהל/ת' : 'מנחה'}</span>}
+            {author && author.role !== 'member' && <span className="role-tag">{author.role === 'admin' ? 'מנהל' : 'מנחה'}</span>}
             <time className="row-time" title={fullDate(createdAt)}>{clockTime(createdAt)}</time>
           </div>
         )}

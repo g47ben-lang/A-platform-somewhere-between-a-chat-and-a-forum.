@@ -40,4 +40,12 @@ for v in 1 2; do
   psql -q -v ON_ERROR_STOP=1 -d $DB -f tests/upgrade_check.sql
 done
 
+echo "== upgrade from v3 =="
+fresh_db
+apply tests/fixtures/schema_v3.sql
+psql -q -v ON_ERROR_STOP=1 -d $DB -f tests/upgrade_v3.sql >/dev/null
+apply schema.sql
+apply schema.sql
+psql -q -v ON_ERROR_STOP=1 -d $DB -f tests/upgrade_check_v3.sql
+
 psql -q -d postgres -c "drop database $DB"

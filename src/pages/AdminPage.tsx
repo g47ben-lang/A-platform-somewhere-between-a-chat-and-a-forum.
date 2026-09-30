@@ -36,14 +36,14 @@ export default function AdminPage() {
 
   async function updateOne(p: Profile, patch: ProfilePatch) {
     if (p.id === me?.id && (patch.role || patch.status)) {
-      const ok = await confirm({ title: 'שינוי ההרשאות שלך', body: 'ייתכן שתאבד/י את הגישה לדף הניהול.', confirmLabel: 'המשך', danger: true });
+      const ok = await confirm({ title: 'שינוי ההרשאות שלך', body: 'ייתכן שתאבד את הגישה לדף הניהול.', confirmLabel: 'המשך', danger: true });
       if (!ok) return;
     }
     update([p.id], patch);
   }
 
   async function ban(p: Profile) {
-    const ok = await confirm({ title: `חסימת ${p.display_name}`, body: 'החבר/ה יאבד/ו גישה לכל תוכן הקהילה עד לביטול החסימה.', confirmLabel: 'חסימה', danger: true });
+    const ok = await confirm({ title: `חסימת ${p.display_name}`, body: 'החבר יאבד גישה לכל תוכן הקהילה עד לביטול החסימה.', confirmLabel: 'חסימה', danger: true });
     if (ok) updateOne(p, { status: 'banned' });
   }
 
@@ -114,7 +114,7 @@ export default function AdminPage() {
                       <Avatar id={p.id} name={p.display_name} size={40} />
                       <div className="list-main">
                         <div className="list-title">{p.display_name}</div>
-                        <div className="list-sub">נרשם/ה {timeAgo(p.created_at)}</div>
+                        <div className="list-sub">נרשם {timeAgo(p.created_at)}</div>
                       </div>
                       <div className="row gap">
                         <button className="btn text danger" onClick={() => updateOne(p, { status: 'banned' })}>דחייה</button>
@@ -187,9 +187,9 @@ export default function AdminPage() {
             </div>
             <div className="perm-table" role="table">
               <div className="perm-head" role="row">
-                <span role="columnheader">חבר/ה</span>
-                <span role="columnheader">יכול/ה לשלוח</span>
-                <span role="columnheader">אפשר לשלוח אליו/ה</span>
+                <span role="columnheader">חבר</span>
+                <span role="columnheader">יכול לשלוח</span>
+                <span role="columnheader">אפשר לשלוח אליו</span>
               </div>
               {active.filter(matches).map((p) => (
                 <div className="perm-line" role="row" key={p.id}>
@@ -198,7 +198,7 @@ export default function AdminPage() {
                     {p.display_name}
                   </span>
                   <span role="cell">
-                    <input type="checkbox" className="switch" checked={p.can_send_anonymous} aria-label={`${p.display_name} יכול/ה לשלוח בעילום שם`}
+                    <input type="checkbox" className="switch" checked={p.can_send_anonymous} aria-label={`${p.display_name} יכול לשלוח בעילום שם`}
                       onChange={(e) => update([p.id], { can_send_anonymous: e.target.checked })} />
                   </span>
                   <span role="cell">

@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useApp } from '../AppContext';
 import { supabase, SITE_NAME } from '../supabase';
 import { subscribe } from '../lib/realtime';
 import { errorText } from '../lib/format';
 import { useTyping } from '../lib/useTyping';
-import type { Message } from '../types';
+import { messageLink, summarizeReactions } from '../lib/chat';
+import type { Message, Reaction } from '../types';
 import Avatar, { SpaceTile } from '../components/Avatar';
-import ChatStream, { type StreamItem } from '../components/ChatStream';
-import Composer, { type ComposerHandle } from '../components/Composer';
+import ChatStream, { type MenuAction, type StreamItem } from '../components/ChatStream';
+import Composer, { type ComposerHandle, type SendOptions } from '../components/Composer';
 import { useFeedback } from '../components/Feedback';
+import ForwardDialog from '../components/ForwardDialog';
 import Icon from '../components/Icon';
-import type { RowAction } from '../components/MessageRow';
 import { useProfileCard } from '../components/ProfileCard';
 import RoomDialog from '../components/RoomDialog';
 
@@ -21,13 +22,12 @@ const PAGE = 60;
 // Absolute URL: a relative url() inside a CSS variable would resolve against the stylesheet folder.
 const HERO_URL = new URL(`${import.meta.env.BASE_URL}hero.jpg`, document.baseURI).href;
 
-interface Like {
-  message_id: number;
-  user_id: string;
-}
+type Panel = 'people' | 'pins' | null;
 
 export default function RoomPage() {
   const params = useParams();
+  const [search, setSearch] = useSearchParams();
+  const linkedId = Number(search.get('m')) || null;
   const { rooms, mainRoom, me, isMod, profiles, online, nameOf, reloadRooms } = useApp();
   const room = params.roomId ? rooms.find((r) => r.id === Number(params.roomId)) : mainRoom;
   const roomId = room?.id ?? null;
@@ -37,21 +37,26 @@ export default function RoomPage() {
 
   const [messages, setMessages] = useState<Message[] | null>(null);
   const [hasOlder, setHasOlder] = useState(false);
-  const [likes, setLikes] = useState<Like[]>([]);
+  const [reactions, setReactions] = useState<Reaction[]>([]);
   const [mineAnon, setMineAnon] = useState<Set<number>>(new Set());
+  const [stars, setStars] = useState<Set<number>>(new Set());
+  const [pinned, setPinned] = useState<Message[]>([]);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [editing, setEditing] = useState<Message | null>(null);
+  const [forward, setForward] = useState<Message | null>(null);
   const [firstUnreadId, setFirstUnreadId] = useState<number | null>(null);
-  const [panel, setPanel] = useState(false);
+  const [panel, setPanel] = useState<Panel>(null);
   const [menu, setMenu] = useState(false);
   const [editRoom, setEditRoom] = useState(false);
   const [sentTick, setSentTick] = useState(0);
   const composer = useRef<ComposerHandle>(null);
   const unreadSnapshot = useRef(0);
+  // After "mark as unread" the room must not mark itself read again until the user acts.
+  const holdRead = useRef(false);
   const { typingLabel, ping } = useTyping(roomId ? `room-${roomId}` : null, me?.display_name);
 
   const markRead = useCallback(async () => {
-    if (!roomId) return;
+    if (!roomId || holdRead.current) return;
     await supabase.rpc('mark_room_read', { p_channel: roomId });
     reloadRooms();
   }, [roomId, reloadRooms]);
@@ -60,53 +65,63 @@ export default function RoomPage() {
     const ids = list.map((m) => m.id);
     if (!ids.length) return;
     const anonIds = list.filter((m) => m.anonymous).map((m) => m.id);
-    const [l, a] = await Promise.all([
-      supabase.from('reactions').select('message_id,user_id').in('message_id', ids),
+    const [r, a, s] = await Promise.all([
+      supabase.from('reactions').select('message_id,user_id,emoji').in('message_id', ids),
       anonIds.length ? supabase.from('anon_authors').select('item_id').eq('kind', 'message').in('item_id', anonIds) : Promise.resolve({ data: [] }),
+      supabase.from('stars').select('item_id').eq('kind', 'room').in('item_id', ids),
     ]);
     const idSet = new Set(ids);
-    if (l.data) setLikes((prev) => [...prev.filter((x) => !idSet.has(x.message_id)), ...(l.data as Like[])]);
+    if (r.data) setReactions((prev) => [...prev.filter((x) => !idSet.has(x.message_id)), ...(r.data as Reaction[])]);
     if (a.data) setMineAnon((prev) => new Set([...prev, ...(a.data as { item_id: number }[]).map((x) => x.item_id)]));
+    if (s.data) setStars((prev) => new Set([...prev, ...(s.data as { item_id: number }[]).map((x) => x.item_id)]));
   }, []);
 
-  // Remember how many were unread when the room was opened, for the "new messages" divider.
+  const loadPins = useCallback(async () => {
+    if (!roomId) return;
+    const { data } = await supabase.from('messages').select('*').eq('channel_id', roomId).not('pinned_at', 'is', null).order('pinned_at', { ascending: false });
+    setPinned(((data as Message[]) ?? []).filter((m) => !m.deleted));
+  }, [roomId]);
+
+  // Remember how many were unread when the room was opened, before mark-read resets it.
   useEffect(() => {
     unreadSnapshot.current = room?.unread ?? 0;
-    // only when switching rooms, before the mark-read below changes it
+    holdRead.current = false;
+    // only when switching rooms
   }, [roomId]);
 
   useEffect(() => {
     if (!roomId) return;
     let cancelled = false;
     setMessages(null);
-    setLikes([]);
+    setReactions([]);
     setReplyTo(null);
     setEditing(null);
     setFirstUnreadId(null);
     setMenu(false);
     (async () => {
-      const { data } = await supabase
-        .from('messages')
-        .select('*')
-        .eq('channel_id', roomId)
-        .order('created_at', { ascending: false })
-        .order('id', { ascending: false })
-        .limit(PAGE);
-      if (cancelled) return;
-      const list = ((data as Message[]) ?? []).reverse();
-      // Divider before the Nth-from-last message not written by me.
-      let n = unreadSnapshot.current;
-      let first: number | null = null;
-      for (let i = list.length - 1; i >= 0 && n > 0; i--) {
-        if (list[i].author_id !== me?.id && !list[i].deleted) {
-          first = list[i].id;
-          n--;
-        }
+      let list: Message[];
+      if (linkedId) {
+        // Open around a linked message: some context before it, everything after it.
+        const { data: target } = await supabase.from('messages').select('created_at').eq('id', linkedId).eq('channel_id', roomId).maybeSingle();
+        const at = (target as { created_at: string } | null)?.created_at;
+        const [before, after] = await Promise.all([
+          at ? supabase.from('messages').select('*').eq('channel_id', roomId).lt('created_at', at).order('created_at', { ascending: false }).limit(20) : Promise.resolve({ data: [] }),
+          supabase.from('messages').select('*').eq('channel_id', roomId).gte('created_at', at ?? '1970-01-01').order('created_at').limit(200),
+        ]);
+        list = [...(((before.data as Message[]) ?? []).reverse()), ...((after.data as Message[]) ?? [])];
+      } else {
+        const { data } = await supabase.from('messages').select('*').eq('channel_id', roomId).order('created_at', { ascending: false }).order('id', { ascending: false }).limit(PAGE);
+        list = ((data as Message[]) ?? []).reverse();
       }
-      setFirstUnreadId(unreadSnapshot.current > 0 ? first : null);
+      if (cancelled) return;
+      if (!linkedId && unreadSnapshot.current > 0) {
+        const theirs = list.filter((m) => m.author_id !== me?.id && !m.deleted);
+        setFirstUnreadId(theirs[Math.max(0, theirs.length - unreadSnapshot.current)]?.id ?? null);
+      }
       setMessages(list);
-      setHasOlder(list.length === PAGE);
+      setHasOlder(list.length >= PAGE || !!linkedId);
       loadExtras(list);
+      loadPins();
       markRead();
     })();
 
@@ -120,14 +135,15 @@ export default function RoomPage() {
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter: `channel_id=eq.${roomId}` }, (p) => {
           const m = p.new as Message;
           setMessages((prev) => prev?.map((x) => (x.id === m.id ? m : x)) ?? prev);
+          loadPins();
         })
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reactions' }, (p) => {
-          const l = p.new as Like;
-          setLikes((prev) => (prev.some((x) => x.message_id === l.message_id && x.user_id === l.user_id) ? prev : [...prev, l]));
+          const r = p.new as Reaction;
+          setReactions((prev) => (prev.some((x) => x.message_id === r.message_id && x.user_id === r.user_id && x.emoji === r.emoji) ? prev : [...prev, r]));
         })
         .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'reactions' }, (p) => {
-          const l = p.old as Like;
-          setLikes((prev) => prev.filter((x) => !(x.message_id === l.message_id && x.user_id === l.user_id)));
+          const r = p.old as Reaction;
+          setReactions((prev) => prev.filter((x) => !(x.message_id === r.message_id && x.user_id === r.user_id && x.emoji === r.emoji)));
         }),
     );
     const onVisible = () => !document.hidden && markRead();
@@ -137,8 +153,7 @@ export default function RoomPage() {
       unsub();
       document.removeEventListener('visibilitychange', onVisible);
     };
-    // me?.id is stable for the session
-  }, [roomId, loadExtras, markRead]);
+  }, [roomId, linkedId, loadExtras, loadPins, markRead]);
 
   const byId = useMemo(() => new Map((messages ?? []).map((m) => [m.id, m])), [messages]);
 
@@ -146,7 +161,6 @@ export default function RoomPage() {
     if (!messages) return null;
     return messages.map((m) => {
       const parent = m.reply_to ? byId.get(m.reply_to) : undefined;
-      const ls = likes.filter((l) => l.message_id === m.id);
       return {
         id: m.id,
         authorId: m.author_id,
@@ -156,33 +170,35 @@ export default function RoomPage() {
         editedAt: m.edited_at,
         deleted: m.deleted,
         body: m.body,
+        attachment: m.attachment,
+        forwarded: m.forwarded,
+        pinned: !!m.pinned_at,
+        starred: stars.has(m.id),
         quote: m.reply_to
           ? parent
-            ? { name: parent.anonymous ? 'אנונימי' : nameOf(parent.author_id), text: parent.deleted ? 'הודעה שנמחקה' : parent.body.slice(0, 160) }
+            ? { name: parent.anonymous ? 'אנונימי' : nameOf(parent.author_id), text: parent.deleted ? 'הודעה שנמחקה' : parent.body.slice(0, 200), media: !!parent.attachment }
             : { name: '', text: 'הודעה קודמת' }
           : null,
-        likes: { count: ls.length, liked: !!me && ls.some((l) => l.user_id === me.id) },
+        reactions: summarizeReactions(
+          reactions.filter((r) => r.message_id === m.id),
+          (r) => r.user_id === me?.id,
+          (r) => nameOf(r.user_id),
+        ),
       };
     });
-  }, [messages, likes, mineAnon, byId, me, nameOf]);
+  }, [messages, reactions, mineAnon, stars, byId, me, nameOf]);
 
   async function loadOlder() {
     const first = messages?.[0];
     if (!first || !roomId) return;
-    const { data } = await supabase
-      .from('messages')
-      .select('*')
-      .eq('channel_id', roomId)
-      .lt('created_at', first.created_at)
-      .order('created_at', { ascending: false })
-      .limit(PAGE);
+    const { data } = await supabase.from('messages').select('*').eq('channel_id', roomId).lt('created_at', first.created_at).order('created_at', { ascending: false }).limit(PAGE);
     const older = ((data as Message[]) ?? []).reverse();
     setMessages((prev) => [...older, ...(prev ?? [])]);
     setHasOlder(older.length === PAGE);
     loadExtras(older);
   }
 
-  async function send(text: string, opts: { anonymous: boolean }) {
+  async function send(text: string, opts: SendOptions) {
     if (!roomId) return false;
     if (editing) {
       const { error } = await supabase.from('messages').update({ body: text }).eq('id', editing.id);
@@ -199,6 +215,7 @@ export default function RoomPage() {
       p_body: text,
       p_reply_to: replyTo?.id ?? null,
       p_anonymous: opts.anonymous,
+      p_attachment: opts.attachment,
     });
     if (error) {
       toast(errorText(error), 'error');
@@ -209,21 +226,25 @@ export default function RoomPage() {
     if (opts.anonymous) setMineAnon((prev) => new Set(prev).add(m.id));
     setReplyTo(null);
     setFirstUnreadId(null);
+    holdRead.current = false;
+    if (linkedId) setSearch({}, { replace: true });
     setSentTick((t) => t + 1);
     return true;
   }
 
-  async function toggleLike(item: StreamItem) {
-    if (!me || item.mine) return;
-    const liked = likes.some((l) => l.message_id === item.id && l.user_id === me.id);
-    if (liked) {
-      setLikes((prev) => prev.filter((l) => !(l.message_id === item.id && l.user_id === me.id)));
-      await supabase.from('reactions').delete().match({ message_id: item.id, user_id: me.id });
+  async function react(item: StreamItem, emoji: string) {
+    if (!me) return;
+    const mine = reactions.some((r) => r.message_id === item.id && r.user_id === me.id && r.emoji === emoji);
+    const row = { message_id: item.id, user_id: me.id, emoji };
+    if (mine) {
+      setReactions((prev) => prev.filter((r) => !(r.message_id === item.id && r.user_id === me.id && r.emoji === emoji)));
+      const { error } = await supabase.from('reactions').delete().match(row);
+      if (error) toast(errorText(error), 'error');
     } else {
-      setLikes((prev) => [...prev, { message_id: item.id, user_id: me.id }]);
-      const { error } = await supabase.from('reactions').insert({ message_id: item.id, user_id: me.id });
+      setReactions((prev) => [...prev, row]);
+      const { error } = await supabase.from('reactions').insert(row);
       if (error) {
-        setLikes((prev) => prev.filter((l) => !(l.message_id === item.id && l.user_id === me.id)));
+        setReactions((prev) => prev.filter((r) => !(r.message_id === item.id && r.user_id === me.id && r.emoji === emoji)));
         toast(errorText(error), 'error');
       }
     }
@@ -234,28 +255,59 @@ export default function RoomPage() {
     if (!ok) return;
     const { error } = await supabase.from('messages').update({ deleted: true }).eq('id', id);
     if (error) toast(errorText(error), 'error');
-    else setMessages((prev) => prev?.map((x) => (x.id === id ? { ...x, deleted: true, body: '' } : x)) ?? prev);
+    else setMessages((prev) => prev?.map((x) => (x.id === id ? { ...x, deleted: true, body: '', attachment: null } : x)) ?? prev);
   }
 
-  async function deleteRoom() {
-    if (!room) return;
-    setMenu(false);
-    const ok = await confirm({ title: `מחיקת החדר "${room.name}"`, body: 'כל ההודעות בחדר יימחקו לצמיתות.', confirmLabel: 'מחיקה', danger: true });
-    if (!ok) return;
-    const { error } = await supabase.from('channels').delete().eq('id', room.id);
+  async function togglePin(m: Message) {
+    const { error } = await supabase.rpc('set_message_pinned', { p_message: m.id, p_pinned: !m.pinned_at });
     if (error) return toast(errorText(error), 'error');
-    toast('החדר נמחק');
-    await reloadRooms();
-    navigate('/');
+    toast(m.pinned_at ? 'ההודעה הוסרה מהלוח' : 'ההודעה הוצמדה ללוח החדר');
+    setMessages((prev) => prev?.map((x) => (x.id === m.id ? { ...x, pinned_at: m.pinned_at ? null : new Date().toISOString() } : x)) ?? prev);
+    loadPins();
   }
 
-  function actionsFor(item: StreamItem): RowAction[] {
+  async function toggleStar(id: number) {
+    const starred = stars.has(id);
+    const { error } = starred
+      ? await supabase.from('stars').delete().match({ kind: 'room', item_id: id })
+      : await supabase.from('stars').insert({ user_id: me!.id, kind: 'room', item_id: id });
+    if (error) return toast(errorText(error), 'error');
+    setStars((prev) => {
+      const next = new Set(prev);
+      if (starred) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    toast(starred ? 'הכוכב הוסר' : 'ההודעה סומנה בכוכב');
+  }
+
+  async function markUnread(id: number) {
+    const { error } = await supabase.rpc('mark_room_unread', { p_message: id });
+    if (error) return toast(errorText(error), 'error');
+    holdRead.current = true;
+    await reloadRooms();
+    toast('ההודעה סומנה כלא נקראה');
+  }
+
+  async function copy(text: string, done: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast(done);
+    } catch {
+      toast('ההעתקה נכשלה', 'error');
+    }
+  }
+
+  function menuFor(item: StreamItem): MenuAction[] {
     const m = byId.get(item.id)!;
-    const a: RowAction[] = [];
-    if (!item.mine) a.push({ icon: 'thumb_up', label: 'לייק', onClick: () => toggleLike(item), active: item.likes?.liked });
-    if (canWrite) a.push({ icon: 'reply', label: 'ציטוט ותשובה', onClick: () => { setEditing(null); setReplyTo(m); composer.current?.focus(); } });
-    if (item.mine) a.push({ icon: 'edit', label: 'עריכה', onClick: () => { setReplyTo(null); setEditing(m); composer.current?.setText(m.body); } });
-    if (item.mine || isMod) a.push({ icon: 'delete', label: 'מחיקה', onClick: () => remove(item.id), danger: true });
+    const a: MenuAction[] = [{ icon: 'forward', label: 'העברת ההודעה', onClick: () => setForward(m) }];
+    a.push({ icon: 'mark_chat_unread', label: 'סימון שההודעה לא נקראה', onClick: () => markUnread(m.id), divider: true });
+    a.push({ icon: 'star', label: item.starred ? 'הסרת הכוכב' : 'סימון בכוכב', onClick: () => toggleStar(m.id) });
+    if (!room?.admin_only_post || isMod) a.push({ icon: 'keep', label: m.pinned_at ? 'הסרה מהלוח' : 'הצמדה ללוח', onClick: () => togglePin(m) });
+    a.push({ icon: 'link', label: 'העתקת הקישור להודעה', onClick: () => copy(messageLink(room!.is_main ? '/' : `/room/${roomId}`, m.id), 'הקישור הועתק') });
+    if (m.body) a.push({ icon: 'content_copy', label: 'העתקת הטקסט', onClick: () => copy(m.body, 'הטקסט הועתק') });
+    if (item.mine && m.body) a.push({ icon: 'edit', label: 'עריכה', onClick: () => { setReplyTo(null); setEditing(m); composer.current?.setText(m.body); }, divider: true });
+    if (item.mine || isMod) a.push({ icon: 'delete', label: 'מחיקה', onClick: () => remove(m.id), danger: true, divider: !(item.mine && m.body) });
     return a;
   }
 
@@ -280,7 +332,11 @@ export default function RoomPage() {
 
   const headerTools = (
     <div className="room-tools">
-      <button className={`chip-btn ${panel ? 'on' : ''}`} onClick={() => setPanel((v) => !v)} title="משתתפים">
+      <button className={`chip-btn ${panel === 'pins' ? 'on' : ''}`} onClick={() => setPanel((v) => (v === 'pins' ? null : 'pins'))} title="לוח הודעות מוצמדות">
+        <Icon name="keep" size={18} />
+        {pinned.length > 0 && <span>{pinned.length}</span>}
+      </button>
+      <button className={`chip-btn ${panel === 'people' ? 'on' : ''}`} onClick={() => setPanel((v) => (v === 'people' ? null : 'people'))} title="משתתפים">
         <Icon name="group" size={18} />
         <span>{online.size}</span>
       </button>
@@ -305,6 +361,18 @@ export default function RoomPage() {
       )}
     </div>
   );
+
+  async function deleteRoom() {
+    if (!room) return;
+    setMenu(false);
+    const ok = await confirm({ title: `מחיקת החדר "${room.name}"`, body: 'כל ההודעות בחדר יימחקו לצמיתות.', confirmLabel: 'מחיקה', danger: true });
+    if (!ok) return;
+    const { error } = await supabase.from('channels').delete().eq('id', room.id);
+    if (error) return toast(errorText(error), 'error');
+    toast('החדר נמחק');
+    await reloadRooms();
+    navigate('/');
+  }
 
   return (
     <div className={`split ${panel ? 'has-panel' : ''}`}>
@@ -333,14 +401,16 @@ export default function RoomPage() {
         )}
 
         <ChatStream
-          key={room.id}
+          key={`${room.id}-${linkedId ?? ''}`}
           items={items}
           hasOlder={hasOlder}
           onLoadOlder={loadOlder}
-          actionsFor={actionsFor}
-          onLike={toggleLike}
+          onReact={react}
+          onReply={canWrite ? (item) => { setEditing(null); setReplyTo(byId.get(item.id)!); composer.current?.focus(); } : undefined}
+          menuFor={menuFor}
+          showNames
           firstUnreadId={firstUnreadId}
-          highlightId={editing?.id ?? null}
+          highlightId={linkedId ?? editing?.id ?? null}
           typingLabel={typingLabel}
           sentTick={sentTick}
           empty={
@@ -356,6 +426,7 @@ export default function RoomPage() {
           ref={composer}
           placeholder={room.is_main ? 'הודעה לכל הקהילה' : `הודעה ב${room.name}`}
           allowAnonymous={!!me?.can_send_anonymous && !editing}
+          allowAttachments={!editing}
           onSend={send}
           mentionNames={mentionNames}
           onTyping={(anon, stop) => ping(anon, stop)}
@@ -364,7 +435,7 @@ export default function RoomPage() {
             editing ? (
               <><Icon name="edit" size={16} /> עריכת הודעה</>
             ) : replyTo ? (
-              <><Icon name="reply" size={16} className="icon-flip" /> תשובה ל<strong>{replyTo.anonymous ? 'אנונימי' : nameOf(replyTo.author_id)}</strong>: {replyTo.body.slice(0, 80)}</>
+              <><Icon name="format_quote" size={16} /> ציטוט של <strong>{replyTo.anonymous ? 'אנונימי' : nameOf(replyTo.author_id)}</strong>: {replyTo.body.slice(0, 80) || 'תמונה / סרטון'}</>
             ) : undefined
           }
           onCancelContext={() => {
@@ -375,12 +446,10 @@ export default function RoomPage() {
         />
       </section>
 
-      {panel && (
+      {panel === 'people' && (
         <aside className="panel">
           <header className="panel-head">
-            <button className="icon-btn" onClick={() => setPanel(false)} aria-label="סגירה">
-              <Icon name="close" />
-            </button>
+            <button className="icon-btn" onClick={() => setPanel(null)} aria-label="סגירה"><Icon name="close" /></button>
             <h2>משתתפים</h2>
           </header>
           <div className="panel-body">
@@ -391,7 +460,7 @@ export default function RoomPage() {
                   <button onClick={(e) => openCard(p.id, e.currentTarget)}>
                     <Avatar id={p.id} name={p.display_name} size={32} online={online.has(p.id)} />
                     <span className="grow">{p.display_name}</span>
-                    {p.role !== 'member' && <span className="role-tag">{p.role === 'admin' ? 'מנהל/ת' : 'מנחה'}</span>}
+                    {p.role !== 'member' && <span className="role-tag">{p.role === 'admin' ? 'מנהל' : 'מנחה'}</span>}
                   </button>
                 </li>
               ))}
@@ -400,7 +469,39 @@ export default function RoomPage() {
         </aside>
       )}
 
+      {panel === 'pins' && (
+        <aside className="panel">
+          <header className="panel-head">
+            <button className="icon-btn" onClick={() => setPanel(null)} aria-label="סגירה"><Icon name="close" /></button>
+            <h2>לוח ההודעות המוצמדות</h2>
+          </header>
+          <div className="panel-body">
+            {pinned.length === 0 ? (
+              <div className="empty-state small">
+                <Icon name="keep" size={36} />
+                <p className="muted">אין הודעות מוצמדות. אפשר להצמיד הודעה חשובה מתפריט ⋮ שלה.</p>
+              </div>
+            ) : (
+              <ul className="pins">
+                {pinned.map((m) => (
+                  <li key={m.id}>
+                    <button onClick={() => setSearch({ m: String(m.id) })}>
+                      <Avatar id={m.author_id} name={nameOf(m.author_id)} size={28} anonymous={m.anonymous} />
+                      <span className="grow">
+                        <span className="pin-author">{m.anonymous ? 'אנונימי' : nameOf(m.author_id)}</span>
+                        <span className="pin-body">{m.body || (m.attachment ? 'תמונה / סרטון' : '')}</span>
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </aside>
+      )}
+
       {editRoom && <RoomDialog room={room} onClose={() => setEditRoom(false)} />}
+      {forward && <ForwardDialog body={forward.body} attachment={forward.attachment} onClose={() => setForward(null)} />}
     </div>
   );
 }

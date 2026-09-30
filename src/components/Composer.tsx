@@ -1,8 +1,13 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ClipboardEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { uploadAttachment } from '../lib/media';
+import type { Attachment } from '../types';
+import EmojiPicker from './EmojiPicker';
+import { useFeedback } from './Feedback';
 import Icon from './Icon';
 
 export interface SendOptions {
   anonymous: boolean;
+  attachment: Attachment | null;
 }
 
 export interface ComposerHandle {
@@ -21,12 +26,20 @@ interface Props {
   /** Member names offered after typing "@". */
   mentionNames?: string[];
   onTyping?: (anonymous: boolean, stopped?: boolean) => void;
+  /** Photos and short videos (not while editing). */
+  allowAttachments?: boolean;
+}
+
+interface Pending {
+  preview: string;
+  kind: 'image' | 'video';
+  attachment: Attachment | null;
 }
 
 const isTouch = () => typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
 
 const Composer = forwardRef<ComposerHandle, Props>(function Composer(
-  { placeholder, onSend, allowAnonymous, context, onCancelContext, disabledReason, maxLength = 4000, mentionNames = [], onTyping },
+  { placeholder, onSend, allowAnonymous, context, onCancelContext, disabledReason, maxLength = 4000, mentionNames = [], onTyping, allowAttachments },
   ref,
 ) {
   const [text, setText] = useState('');
@@ -34,7 +47,11 @@ const Composer = forwardRef<ComposerHandle, Props>(function Composer(
   const [busy, setBusy] = useState(false);
   const [mention, setMention] = useState<{ start: number; query: string } | null>(null);
   const [pick, setPick] = useState(0);
+  const [pending, setPending] = useState<Pending | null>(null);
+  const [emojiAt, setEmojiAt] = useState<{ x: number; y: number } | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const { toast } = useFeedback();
 
   useImperativeHandle(ref, () => ({
     focus: () => input.current?.focus(),
@@ -71,19 +88,62 @@ const Composer = forwardRef<ComposerHandle, Props>(function Composer(
     );
   }
 
-  const canSend = !busy && text.trim().length > 0;
+  const uploading = !!pending && !pending.attachment;
+  const canSend = !busy && !uploading && (text.trim().length > 0 || !!pending?.attachment);
 
   async function send() {
     if (!canSend) return;
     setBusy(true);
-    const ok = await onSend(text.trim(), { anonymous });
+    const ok = await onSend(text.trim(), { anonymous, attachment: pending?.attachment ?? null });
     setBusy(false);
     if (ok) {
       setText('');
       setMention(null);
+      clearPending();
       onTyping?.(anonymous, true);
     }
     input.current?.focus();
+  }
+
+  function clearPending() {
+    if (pending) URL.revokeObjectURL(pending.preview);
+    setPending(null);
+  }
+
+  async function attach(file: File | undefined) {
+    if (!file) return;
+    const kind = file.type.startsWith('video/') ? 'video' : 'image';
+    const preview = URL.createObjectURL(file);
+    setPending({ preview, kind, attachment: null });
+    try {
+      const attachment = await uploadAttachment(file);
+      setPending((p) => (p && p.preview === preview ? { ...p, attachment } : p));
+    } catch (err) {
+      URL.revokeObjectURL(preview);
+      setPending((p) => (p && p.preview === preview ? null : p));
+      toast((err as Error).message, 'error');
+    }
+  }
+
+  function onPaste(e: ClipboardEvent<HTMLTextAreaElement>) {
+    if (!allowAttachments) return;
+    const file = [...e.clipboardData.files].find((f) => f.type.startsWith('image/') || f.type.startsWith('video/'));
+    if (file) {
+      e.preventDefault();
+      attach(file);
+    }
+  }
+
+  function insertEmoji(emoji: string) {
+    const el = input.current;
+    const start = el?.selectionStart ?? text.length;
+    const end = el?.selectionEnd ?? text.length;
+    const next = text.slice(0, start) + emoji + text.slice(end);
+    setText(next);
+    setTimeout(() => {
+      el?.focus();
+      el?.setSelectionRange(start + emoji.length, start + emoji.length);
+    }, 0);
   }
 
   function onChange(value: string, caret: number) {
@@ -150,6 +210,16 @@ const Composer = forwardRef<ComposerHandle, Props>(function Composer(
         </div>
       )}
       <div className={`composer ${anonymous ? 'is-anon' : ''}`}>
+        {pending && (
+          <div className="attach-preview">
+            <div className="attach-thumb">
+              {pending.kind === 'video' ? <video src={pending.preview} muted /> : <img src={pending.preview} alt="" />}
+              {!pending.attachment && <div className="attach-progress"><div className="spinner small" /></div>}
+              {pending.kind === 'video' && pending.attachment && <span className="attach-badge"><Icon name="videocam" size={14} /></span>}
+            </div>
+            <button className="icon-btn small" onClick={clearPending} aria-label="הסרת הקובץ"><Icon name="close" size={18} /></button>
+          </div>
+        )}
         {suggestions.length > 0 && (
           <ul className="mention-list" role="listbox">
             {suggestions.map((n, i) => (
@@ -170,12 +240,41 @@ const Composer = forwardRef<ComposerHandle, Props>(function Composer(
           </ul>
         )}
         <div className="composer-row">
+          {allowAttachments && (
+            <>
+              <button type="button" className="anon-toggle" onClick={() => fileInput.current?.click()} title="צירוף תמונה או סרטון" aria-label="צירוף תמונה או סרטון" disabled={!!pending}>
+                <Icon name="add_photo_alternate" size={20} />
+              </button>
+              <input
+                ref={fileInput}
+                type="file"
+                accept="image/*,video/mp4,video/webm,video/quicktime"
+                hidden
+                onChange={(e) => {
+                  attach(e.target.files?.[0]);
+                  e.target.value = '';
+                }}
+              />
+            </>
+          )}
+          <button
+            type="button"
+            className="anon-toggle"
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              setEmojiAt({ x: r.left + r.width / 2, y: r.top });
+            }}
+            title="אימוג'י"
+            aria-label="אימוג'י"
+          >
+            <Icon name="mood" size={20} />
+          </button>
           {allowAnonymous && (
             <button
               type="button"
               className={`anon-toggle ${anonymous ? 'on' : ''}`}
               onClick={() => setAnonymous((v) => !v)}
-              title={anonymous ? 'שולח/ת בעילום שם. לחיצה לשליחה בשמך' : 'שליחה בעילום שם'}
+              title={anonymous ? 'שולח בעילום שם. לחיצה לשליחה בשמך' : 'שליחה בעילום שם'}
               aria-pressed={anonymous}
             >
               <Icon name="visibility_off" size={20} />
@@ -187,6 +286,7 @@ const Composer = forwardRef<ComposerHandle, Props>(function Composer(
             value={text}
             onChange={(e) => onChange(e.target.value, e.target.selectionStart)}
             onKeyDown={onKey}
+            onPaste={onPaste}
             onBlur={() => setTimeout(() => setMention(null), 150)}
             placeholder={anonymous ? 'הודעה בעילום שם' : placeholder}
             maxLength={maxLength}
@@ -197,6 +297,7 @@ const Composer = forwardRef<ComposerHandle, Props>(function Composer(
           </button>
         </div>
       </div>
+      {emojiAt && <EmojiPicker anchor={emojiAt} onClose={() => setEmojiAt(null)} onPick={(e) => { setEmojiAt(null); insertEmoji(e); }} />}
       {anonymous && <div className="anon-hint">ההודעה תופיע בשם "אנונימי". אף אחד, כולל המנהלים, לא יראה מי שלח.</div>}
     </div>
   );

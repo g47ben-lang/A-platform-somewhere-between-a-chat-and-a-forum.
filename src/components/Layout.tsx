@@ -107,6 +107,10 @@ export default function Layout() {
             <span className="nav-label">הצ'אט הראשי</span>
             {mainRoom && mainRoom.unread > 0 && <span className="badge-count">{badge(mainRoom.unread)}</span>}
           </NavLink>
+          <NavLink to="/starred" className="nav-item">
+            <Icon name="star" />
+            <span className="nav-label">מסומנות בכוכב</span>
+          </NavLink>
           {isAdmin && pendingCount > 0 && (
             <NavLink to="/admin" className="nav-item">
               <Icon name="admin_panel_settings" />
@@ -142,13 +146,13 @@ export default function Layout() {
               <Icon name="add" size={20} />
             </button>
           </div>
-          {conversations.length === 0 && <div className="nav-empty">לחיצה על שם של חבר/ה פותחת שיחה אישית</div>}
+          {conversations.length === 0 && <div className="nav-empty">לחיצה על שם של חבר פותחת שיחה אישית</div>}
           {conversations.map((c) => (
             <NavLink key={c.id} to={`/dm/${c.id}`} className={`nav-item ${c.unread > 0 ? 'unread' : ''}`}>
               <Avatar id={c.other_id} name={convTitle(c)} size={24} anonymous={!c.other_id} online={!!c.other_id && online.has(c.other_id)} />
               <span className="nav-label">{convTitle(c)}</span>
               {c.i_am_hidden && (
-                <span className="nav-hint" title="את/ה בעילום שם בשיחה הזו">
+                <span className="nav-hint" title="אתה בעילום שם בשיחה הזו">
                   <Icon name="visibility_off" size={12} /> אנונימי
                 </span>
               )}

@@ -97,14 +97,14 @@ export default function ProfilePage() {
             <h1>{profile.display_name}</h1>
             <div className="profile-meta">
               {profile.role !== 'member' && <span className="role-tag">{ROLE_LABEL[profile.role]}</span>}
-              <span>{online.has(profile.id) ? 'מחובר/ת עכשיו' : 'לא מחובר/ת'}</span>
+              <span>{online.has(profile.id) ? 'מחובר עכשיו' : 'לא מחובר'}</span>
               <span>·</span>
-              <span>חבר/ה מאז {fullDate(profile.created_at)}</span>
+              <span>חבר מאז {fullDate(profile.created_at)}</span>
             </div>
             {profile.bio && <p className="profile-bio">{profile.bio}</p>}
             <div className="profile-actions">
               {isMe ? (
-                <Link to="/settings" className="btn outlined"><Icon name="edit" size={18} /> עריכת הפרופיל</Link>
+                <Link to="/settings" className="btn outlined"><Icon name="edit" size={18} /> עריכת הפרופיל והתמונה</Link>
               ) : (
                 <>
                   <button className="btn filled" onClick={() => message(false)}><Icon name="chat" size={18} /> שליחת הודעה</button>

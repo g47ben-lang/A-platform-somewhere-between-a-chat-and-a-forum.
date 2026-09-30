@@ -1,7 +1,21 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { dayLabel } from '../lib/format';
-import Icon from './Icon';
-import MessageRow, { DaySeparator, LikeChip, type RowAction } from './MessageRow';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useApp } from '../AppContext';
+import { clockTime, dayLabel, fullDate } from '../lib/format';
+import { quickReactions, rememberEmoji } from '../lib/emoji';
+import { useSignedUrl } from '../lib/media';
+import type { Attachment } from '../types';
+import Avatar from './Avatar';
+import EmojiPicker from './EmojiPicker';
+import Icon, { type IconName } from './Icon';
+import { useProfileCard } from './ProfileCard';
+import RichText from './RichText';
+
+export interface ReactionSummary {
+  emoji: string;
+  count: number;
+  mine: boolean;
+  names: string[];
+}
 
 export interface StreamItem {
   id: number;
@@ -12,16 +26,31 @@ export interface StreamItem {
   editedAt: string | null;
   deleted: boolean;
   body: string;
-  quote?: { name: string; text: string } | null;
-  likes?: { count: number; liked: boolean };
+  attachment: Attachment | null;
+  forwarded: boolean;
+  pinned?: boolean;
+  starred?: boolean;
+  quote?: { name: string; text: string; media?: boolean } | null;
+  reactions: ReactionSummary[];
+}
+
+export interface MenuAction {
+  icon: IconName;
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+  divider?: boolean;
 }
 
 interface Props {
   items: StreamItem[] | null;
   hasOlder: boolean;
   onLoadOlder: () => Promise<void>;
-  actionsFor: (item: StreamItem) => RowAction[];
-  onLike?: (item: StreamItem) => void;
+  onReact: (item: StreamItem, emoji: string) => void;
+  onReply?: (item: StreamItem) => void;
+  menuFor: (item: StreamItem) => MenuAction[];
+  /** Rooms show author names above other people's bubbles; 1:1 chats don't need them. */
+  showNames: boolean;
   firstUnreadId?: number | null;
   highlightId?: number | null;
   empty: ReactNode;
@@ -32,16 +61,18 @@ interface Props {
 
 const GROUP_MS = 5 * 60 * 1000;
 
-export default function ChatStream({ items, hasOlder, onLoadOlder, actionsFor, onLike, firstUnreadId, highlightId, empty, typingLabel, sentTick }: Props) {
+export default function ChatStream(props: Props) {
+  const { items, hasOlder, onLoadOlder, firstUnreadId, highlightId, empty, typingLabel, sentTick } = props;
   const ref = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
   const preserve = useRef<number | null>(null);
   const seenCount = useRef(0);
   const [newBelow, setNewBelow] = useState(0);
   const [loadingOlder, setLoadingOlder] = useState(false);
+  const [selected, setSelected] = useState<number | null>(null);
+  const [lightbox, setLightbox] = useState<string | null>(null);
   const didInitialScroll = useRef(false);
 
-  // Keep pinned to the newest message unless the user scrolled up; count arrivals meanwhile.
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el || !items) return;
@@ -50,20 +81,27 @@ export default function ChatStream({ items, hasOlder, onLoadOlder, actionsFor, o
       preserve.current = null;
     } else if (!didInitialScroll.current) {
       didInitialScroll.current = true;
-      const divider = firstUnreadId ? el.querySelector('.unread-sep') : null;
-      if (divider) (divider as HTMLElement).scrollIntoView({ block: 'center' });
+      const target = highlightId ? el.querySelector(`[data-mid="${highlightId}"]`) : firstUnreadId ? el.querySelector('.unread-sep') : null;
+      if (target) (target as HTMLElement).scrollIntoView({ block: 'center' });
       else el.scrollTop = el.scrollHeight;
+      atBottom.current = !target;
     } else if (atBottom.current) {
       el.scrollTop = el.scrollHeight;
     } else if (items.length > seenCount.current) {
       setNewBelow((n) => n + (items.length - seenCount.current));
     }
     seenCount.current = items.length;
-  }, [items, firstUnreadId]);
+  }, [items, firstUnreadId, highlightId]);
+
+  // Jump to a linked message after the initial load too.
+  useEffect(() => {
+    if (!highlightId || !didInitialScroll.current) return;
+    ref.current?.querySelector(`[data-mid="${highlightId}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [highlightId]);
 
   useLayoutEffect(() => {
     const el = ref.current;
-    if (!el) return;
+    if (!el || !sentTick) return;
     atBottom.current = true;
     el.scrollTop = el.scrollHeight;
     setNewBelow(0);
@@ -96,9 +134,15 @@ export default function ChatStream({ items, hasOlder, onLoadOlder, actionsFor, o
     setNewBelow(0);
   }
 
+  // Photos keep the view pinned to the bottom once they finish loading.
+  function onMediaLoad() {
+    const el = ref.current;
+    if (el && atBottom.current) el.scrollTop = el.scrollHeight;
+  }
+
   return (
     <div className="stream-wrap">
-      <div className="stream" ref={ref} onScroll={onScroll}>
+      <div className="stream bubbles" ref={ref} onScroll={onScroll}>
         {items === null ? (
           <div className="spinner" />
         ) : items.length === 0 ? (
@@ -113,39 +157,20 @@ export default function ChatStream({ items, hasOlder, onLoadOlder, actionsFor, o
               const newDay = !prev || dayLabel(prev.createdAt) !== dayLabel(m.createdAt);
               const unreadHere = firstUnreadId === m.id;
               const grouped =
-                !newDay && !unreadHere && !!prev && !m.anonymous && !prev.anonymous && prev.authorId === m.authorId && !m.quote &&
-                new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() < GROUP_MS;
+                !newDay && !unreadHere && !!prev && prev.mine === m.mine && !m.anonymous && !prev.anonymous &&
+                prev.authorId === m.authorId && new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() < GROUP_MS;
               return (
                 <div key={m.id}>
-                  {newDay && <DaySeparator label={dayLabel(m.createdAt)} />}
+                  {newDay && <div className="day-sep" role="separator"><span>{dayLabel(m.createdAt)}</span></div>}
                   {unreadHere && <div className="unread-sep"><span>הודעות חדשות</span></div>}
-                  <MessageRow
-                    authorId={m.authorId}
-                    anonymous={m.anonymous}
-                    mine={m.mine}
-                    createdAt={m.createdAt}
-                    editedAt={m.editedAt}
-                    deleted={m.deleted}
-                    body={m.body}
+                  <Bubble
+                    item={m}
                     grouped={grouped}
-                    highlight={highlightId === m.id}
-                    quote={
-                      m.quote ? (
-                        <div className="quote">
-                          <Icon name="reply" size={14} className="icon-flip" />
-                          <strong>{m.quote.name}</strong>
-                          <span>{m.quote.text}</span>
-                        </div>
-                      ) : undefined
-                    }
-                    footer={
-                      m.likes && m.likes.count > 0 && onLike ? (
-                        <div className="row-foot">
-                          <LikeChip count={m.likes.count} liked={m.likes.liked} onClick={() => onLike(m)} disabled={m.mine} />
-                        </div>
-                      ) : undefined
-                    }
-                    actions={actionsFor(m)}
+                    props={props}
+                    selected={selected === m.id}
+                    onSelect={() => setSelected((s) => (s === m.id ? null : m.id))}
+                    onOpenImage={setLightbox}
+                    onMediaLoad={onMediaLoad}
                   />
                 </div>
               );
@@ -167,6 +192,235 @@ export default function ChatStream({ items, hasOlder, onLoadOlder, actionsFor, o
           {newBelow} הודעות חדשות
         </button>
       )}
+      {lightbox && (
+        <div className="lightbox" onClick={() => setLightbox(null)} role="dialog" aria-label="תמונה">
+          <button className="icon-btn lightbox-close" aria-label="סגירה"><Icon name="close" /></button>
+          <img src={lightbox} alt="" onClick={(e) => e.stopPropagation()} />
+          <a className="btn tonal small lightbox-dl" href={lightbox} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
+            <Icon name="download" size={18} /> פתיחה בגודל מלא
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Bubble({
+  item: m,
+  grouped,
+  props,
+  selected,
+  onSelect,
+  onOpenImage,
+  onMediaLoad,
+}: {
+  item: StreamItem;
+  grouped: boolean;
+  props: Props;
+  selected: boolean;
+  onSelect: () => void;
+  onOpenImage: (url: string) => void;
+  onMediaLoad: () => void;
+}) {
+  const { profiles, online, nameOf, me } = useApp();
+  const openCard = useProfileCard();
+  const [picker, setPicker] = useState<{ x: number; y: number } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const names = useMemo(() => [...profiles.values()].filter((p) => p.status === 'active').map((p) => p.display_name), [profiles]);
+  const isAnon = m.anonymous || !m.authorId;
+  const author = m.authorId ? profiles.get(m.authorId) : undefined;
+  const mentionsMe = !!me && !m.mine && m.body.includes(`@${me.display_name}`);
+  const showHead = !grouped && !m.mine && props.showNames;
+  const quick = quickReactions();
+
+  function react(e: string) {
+    rememberEmoji(e);
+    props.onReact(m, e);
+  }
+
+  const at = (el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top };
+  };
+
+  return (
+    <div
+      data-mid={m.id}
+      className={`b-row ${m.mine ? 'mine' : 'theirs'} ${grouped ? 'grouped' : ''} ${selected ? 'selected' : ''} ${props.highlightId === m.id ? 'flash' : ''}`}
+      onClick={(e) => {
+        if ((e.target as HTMLElement).closest('button, a, video, img, .b-toolbar')) return;
+        onSelect();
+      }}
+    >
+      {!m.mine && (
+        <div className="b-avatar">
+          {!grouped &&
+            (isAnon ? (
+              <Avatar anonymous size={32} />
+            ) : (
+              <button className="avatar-link" onClick={(e) => openCard(m.authorId!, e.currentTarget)} aria-label={nameOf(m.authorId)}>
+                <Avatar id={m.authorId} name={author?.display_name} size={32} online={online.has(m.authorId!)} />
+              </button>
+            ))}
+        </div>
+      )}
+      <div className="b-col">
+        {(showHead || (!grouped && m.mine && m.anonymous)) && (
+          <div className="b-head">
+            {isAnon ? (
+              <span className="anon-author">אנונימי{m.mine && <span className="you-tag">שלך</span>}</span>
+            ) : (
+              <button className="author" onClick={(e) => openCard(m.authorId!, e.currentTarget)}>{nameOf(m.authorId)}</button>
+            )}
+            {author && author.role !== 'member' && <span className="role-tag">{author.role === 'admin' ? 'מנהל' : 'מנחה'}</span>}
+            <time title={fullDate(m.createdAt)}>{clockTime(m.createdAt)}</time>
+          </div>
+        )}
+        <div className="b-line">
+          <div className={`bubble ${m.anonymous ? 'anon' : ''} ${mentionsMe ? 'mentioned' : ''} ${m.deleted ? 'deleted' : ''}`}>
+            {m.forwarded && !m.deleted && (
+              <div className="b-forwarded"><Icon name="forward" size={14} className="icon-flip" /> הועברה</div>
+            )}
+            {m.quote && !m.deleted && (
+              <div className="b-quote">
+                <Icon name="format_quote" size={16} />
+                <div>
+                  {m.quote.name && <strong>{m.quote.name}</strong>}
+                  <span>{m.quote.media && !m.quote.text ? 'תמונה / סרטון' : m.quote.text}</span>
+                </div>
+              </div>
+            )}
+            {m.deleted ? (
+              <span className="b-deleted"><Icon name="block" size={16} /> ההודעה נמחקה</span>
+            ) : (
+              <>
+                {m.attachment && <Media att={m.attachment} onOpenImage={onOpenImage} onLoad={onMediaLoad} />}
+                {m.body && (
+                  <div className="b-text">
+                    <RichText text={m.body} names={names} myName={me?.display_name} />
+                  </div>
+                )}
+              </>
+            )}
+            <div className="b-meta">
+              {m.pinned && <Icon name="keep" size={12} filled />}
+              {m.starred && <Icon name="star" size={12} filled />}
+              {m.editedAt && !m.deleted && <span>נערך</span>}
+              {(grouped || m.mine || !props.showNames) && <time title={fullDate(m.createdAt)}>{clockTime(m.createdAt)}</time>}
+            </div>
+          </div>
+
+          {!m.deleted && (
+            <div className="b-toolbar" onClick={(e) => e.stopPropagation()}>
+              <div className="b-quick">
+                {quick.map((e) => (
+                  <button key={e} className="emoji-btn" onClick={() => react(e)} title={`תגובה ${e}`}>{e}</button>
+                ))}
+              </div>
+              <div className="b-tools">
+                <button className="icon-btn small" title="הוספת תגובה" aria-label="הוספת תגובה" onClick={(e) => setPicker(at(e.currentTarget))}>
+                  <Icon name="add_reaction" size={18} />
+                </button>
+                {props.onReply && (
+                  <button className="icon-btn small" title="ציטוט בתשובה" aria-label="ציטוט בתשובה" onClick={() => props.onReply!(m)}>
+                    <Icon name="reply" size={18} className="icon-flip" />
+                  </button>
+                )}
+                <button className="icon-btn small" title="אפשרויות נוספות" aria-label="אפשרויות נוספות" onClick={(e) => setMenu(at(e.currentTarget))}>
+                  <Icon name="more_vert" size={18} />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {m.reactions.length > 0 && (
+          <div className="b-reactions">
+            {m.reactions.map((r) => (
+              <button key={r.emoji} className={`reaction ${r.mine ? 'mine' : ''}`} onClick={() => react(r.emoji)} title={r.names.join(', ')}>
+                <span className="r-emoji">{r.emoji}</span>
+                <span>{r.count}</span>
+              </button>
+            ))}
+            <button className="reaction add" onClick={(e) => setPicker(at(e.currentTarget))} aria-label="הוספת תגובה">
+              <Icon name="add_reaction" size={16} />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {picker && (
+        <EmojiPicker
+          anchor={picker}
+          onClose={() => setPicker(null)}
+          onPick={(e) => {
+            setPicker(null);
+            props.onReact(m, e);
+          }}
+        />
+      )}
+      {menu && <ActionMenu at={menu} actions={props.menuFor(m)} onClose={() => setMenu(null)} />}
+    </div>
+  );
+}
+
+function Media({ att, onOpenImage, onLoad }: { att: Attachment; onOpenImage: (url: string) => void; onLoad: () => void }) {
+  const url = useSignedUrl(att.path);
+  const ratio = att.width && att.height ? `${att.width} / ${att.height}` : undefined;
+  if (att.type === 'video') {
+    return (
+      <div className="b-media" style={{ aspectRatio: ratio }}>
+        {url ? <video src={url} controls preload="metadata" playsInline onLoadedMetadata={onLoad} /> : <div className="media-loading" />}
+      </div>
+    );
+  }
+  return (
+    <button className="b-media" style={{ aspectRatio: ratio }} onClick={() => url && onOpenImage(url)} aria-label="הגדלת התמונה">
+      {url ? <img src={url} alt="" loading="lazy" onLoad={onLoad} /> : <div className="media-loading" />}
+    </button>
+  );
+}
+
+export function ActionMenu({ at, actions, onClose }: { at: { x: number; y: number }; actions: MenuAction[]; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    setPos({
+      left: Math.min(Math.max(8, at.x - w / 2), window.innerWidth - w - 8),
+      top: at.y - h - 6 > 8 ? at.y - h - 6 : Math.min(at.y + 30, window.innerHeight - h - 8),
+    });
+  }, [at]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div className="card-layer" onMouseDown={onClose}>
+      <div ref={ref} className="menu floating" style={pos ?? { visibility: 'hidden', left: 0, top: 0 }} onMouseDown={(e) => e.stopPropagation()} role="menu">
+        {actions.map((a) => (
+          <div key={a.label}>
+            {a.divider && <div className="menu-divider" />}
+            <button
+              className={`menu-item ${a.danger ? 'danger' : ''}`}
+              role="menuitem"
+              onClick={() => {
+                onClose();
+                a.onClick();
+              }}
+            >
+              <Icon name={a.icon} /> {a.label}
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

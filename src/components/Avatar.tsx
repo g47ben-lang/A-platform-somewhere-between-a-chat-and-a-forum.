@@ -1,4 +1,7 @@
+import { useContext } from 'react';
+import { AppCtx } from '../AppContext';
 import { colorFor, initials } from '../lib/format';
+import { useSignedUrl } from '../lib/media';
 import Icon from './Icon';
 
 interface Props {
@@ -7,9 +10,17 @@ interface Props {
   size?: number;
   online?: boolean;
   anonymous?: boolean;
+  /** Overrides the member's stored photo (e.g. a preview before saving). */
+  src?: string | null;
 }
 
-export default function Avatar({ id, name = '?', size = 32, online, anonymous }: Props) {
+/** Member photo when one is set, otherwise colored initials. Anonymous authors get a neutral mask. */
+export default function Avatar({ id, name = '?', size = 32, online, anonymous, src }: Props) {
+  const app = useContext(AppCtx);
+  const path = !anonymous && id ? app?.profiles.get(id)?.avatar_path ?? (app?.me?.id === id ? app?.me?.avatar_path : null) : null;
+  const url = useSignedUrl(src === undefined ? path : null);
+  const image = src ?? url;
+
   if (anonymous || !id) {
     return (
       <span className="avatar anon" style={{ width: size, height: size }}>
@@ -18,8 +29,8 @@ export default function Avatar({ id, name = '?', size = 32, online, anonymous }:
     );
   }
   return (
-    <span className="avatar" style={{ width: size, height: size, background: colorFor(id), fontSize: size * 0.4 }}>
-      {initials(name)}
+    <span className="avatar" style={{ width: size, height: size, background: image ? 'var(--surface-3)' : colorFor(id), fontSize: size * 0.4 }}>
+      {image ? <img src={image} alt="" draggable={false} /> : initials(name)}
       {online && <span className="presence" />}
     </span>
   );

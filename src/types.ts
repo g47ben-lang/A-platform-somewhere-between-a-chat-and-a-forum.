@@ -9,6 +9,7 @@ export interface Profile {
   bio: string | null;
   accept_anonymous: boolean;
   can_send_anonymous: boolean;
+  avatar_path: string | null;
   created_at: string;
 }
 
@@ -27,6 +28,16 @@ export interface Room {
   last_anonymous: boolean | null;
 }
 
+/** A photo or short video stored in the private "media" bucket. */
+export interface Attachment {
+  type: 'image' | 'video';
+  path: string;
+  width?: number;
+  height?: number;
+  size?: number;
+  duration?: number;
+}
+
 export interface Message {
   id: number;
   channel_id: number;
@@ -37,6 +48,10 @@ export interface Message {
   deleted: boolean;
   created_at: string;
   edited_at: string | null;
+  attachment: Attachment | null;
+  forwarded: boolean;
+  pinned_at: string | null;
+  pinned_by: string | null;
 }
 
 export interface WallPost {
@@ -64,10 +79,28 @@ export interface DmMessage {
   id: number;
   conversation_id: number;
   sender_id: string | null;
+  reply_to: number | null;
   body: string;
   deleted: boolean;
   created_at: string;
   edited_at: string | null;
+  attachment: Attachment | null;
+  forwarded: boolean;
+}
+
+/** Room reaction: always attributed. */
+export interface Reaction {
+  message_id: number;
+  user_id: string;
+  emoji: string;
+}
+
+/** DM reaction: user_id is null when made by the anonymous (hidden) side. */
+export interface DmReaction {
+  message_id: number;
+  user_id: string | null;
+  hidden: boolean;
+  emoji: string;
 }
 
 export interface MemberStats {

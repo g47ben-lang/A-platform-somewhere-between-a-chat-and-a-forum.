@@ -3,10 +3,12 @@
 import { ICON_PATHS } from './iconPaths';
 
 const ICONS = [
-  'add', 'admin_panel_settings', 'arrow_downward', 'block', 'campaign', 'chat', 'check', 'close',
-  'delete', 'edit', 'error', 'forum', 'group', 'home', 'lock', 'logout', 'mail', 'menu',
-  'more_vert', 'person', 'reply', 'search', 'send', 'settings', 'shield_person', 'thumb_up',
-  'visibility', 'visibility_off', 'workspace_premium',
+  'add', 'add_photo_alternate', 'add_reaction', 'admin_panel_settings', 'arrow_downward', 'block',
+  'campaign', 'chat', 'check', 'close', 'content_copy', 'delete', 'download', 'edit', 'error',
+  'format_quote', 'forum', 'forward', 'group', 'home', 'keep', 'link', 'lock', 'logout', 'mail',
+  'mark_chat_unread', 'menu', 'mood', 'more_vert', 'person', 'photo_camera', 'reply', 'schedule',
+  'search', 'send', 'settings', 'shield_person', 'star', 'thumb_up', 'videocam', 'visibility',
+  'visibility_off', 'workspace_premium',
 ] as const;
 
 export type IconName = (typeof ICONS)[number];

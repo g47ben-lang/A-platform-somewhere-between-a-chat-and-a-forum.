@@ -113,7 +113,7 @@ function Card({ userId, x, y, onClose }: CardState & { onClose: () => void }) {
             <div className="pop-name">{p.display_name}</div>
             <div className="pop-sub">
               {p.role !== 'member' && <span className="role-tag">{ROLE_LABEL[p.role]}</span>}
-              <span>{online.has(p.id) ? 'מחובר/ת עכשיו' : 'לא מחובר/ת'}</span>
+              <span>{online.has(p.id) ? 'מחובר עכשיו' : 'לא מחובר'}</span>
             </div>
           </div>
         </div>

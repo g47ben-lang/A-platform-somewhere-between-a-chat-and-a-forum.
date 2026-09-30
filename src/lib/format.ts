@@ -50,7 +50,7 @@ export function initials(name: string): string {
   return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || '?';
 }
 
-export const ROLE_LABEL = { member: 'חבר/ה', moderator: 'מנחה', admin: 'מנהל/ת' } as const;
+export const ROLE_LABEL = { member: 'חבר', moderator: 'מנחה', admin: 'מנהל' } as const;
 export const STATUS_LABEL = { pending: 'ממתין לאישור', active: 'פעיל', banned: 'חסום' } as const;
 
 export interface Level {

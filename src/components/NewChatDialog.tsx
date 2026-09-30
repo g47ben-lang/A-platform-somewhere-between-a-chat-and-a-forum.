@@ -54,7 +54,7 @@ export default function NewChatDialog({ onClose, initialAnonymous = false }: { o
                 <Avatar id={p.id} name={p.display_name} size={36} online={online.has(p.id)} />
                 <span className="grow">
                   <span className="pick-name">{p.display_name}</span>
-                  {blocked && <span className="muted small">לא מקבל/ת הודעות אנונימיות</span>}
+                  {blocked && <span className="muted small">לא מקבל הודעות אנונימיות</span>}
                 </span>
               </button>
             </li>

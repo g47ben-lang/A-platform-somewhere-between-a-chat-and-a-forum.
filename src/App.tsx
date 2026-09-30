@@ -12,6 +12,7 @@ import SettingsPage from './pages/SettingsPage';
 import SearchPage from './pages/SearchPage';
 import AdminPage from './pages/AdminPage';
 import NewPasswordPage from './pages/NewPasswordPage';
+import StarredPage from './pages/StarredPage';
 
 export default function App() {
   const { session, loading, me, isAdmin, recovering, schemaOutdated } = useApp();
@@ -43,7 +44,7 @@ export default function App() {
           <p className="auth-sub">
             {banned
               ? 'החשבון הושעה על ידי מנהלי הקהילה.'
-              : `שלום ${me?.display_name ?? ''}, בקשת ההצטרפות התקבלה. ברגע שמנהל/ת יאשרו אותה, הדף ייפתח אוטומטית.`}
+              : `שלום ${me?.display_name ?? ''}, בקשת ההצטרפות התקבלה. ברגע שמנהל יאשר אותה, הדף ייפתח אוטומטית.`}
           </p>
           <div className="auth-actions">
             <span />
@@ -64,6 +65,7 @@ export default function App() {
         <Route path="dm/:convId" element={<DmPage />} />
         <Route path="u/:userId" element={<ProfilePage />} />
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="starred" element={<StarredPage />} />
         <Route path="search" element={<SearchPage />} />
         <Route path="admin" element={isAdmin ? <AdminPage /> : <Navigate to="/" />} />
         {/* links from earlier versions */}

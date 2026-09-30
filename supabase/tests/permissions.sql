@@ -107,13 +107,15 @@ reset role;
 
 -- ===== Likes & reputation =====
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
-select pg_temp.denied($$insert into reactions (message_id, user_id) values ((select id from messages where body = 'שלום לכולם'), auth.uid())$$, 'cannot like own message');
+insert into reactions (message_id, user_id, emoji) values ((select id from messages where body = 'שלום לכולם'), auth.uid(), '🔥');
 reset role;
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000c');
 insert into reactions (message_id, user_id) values ((select id from messages where body = 'שלום לכולם'), auth.uid());
+insert into reactions (message_id, user_id, emoji) values ((select id from messages where body = 'שלום לכולם'), auth.uid(), '❤️');
+select pg_temp.check((select count(*) = 3 from reactions), 'emoji reactions stored (default 👍)');
 select pg_temp.denied($$insert into reactions (message_id, user_id) values ((select id from messages where body = 'שלום לכולם'), '00000000-0000-0000-0000-00000000000d')$$, 'cannot like on behalf of others');
--- bob: 2 messages, 1 like -> 1*5 + 2 = 7
-select pg_temp.check((select reputation = 7 and likes = 1 from member_stats() where id = '00000000-0000-0000-0000-00000000000b'), 'reputation computed');
+-- bob: 2 messages; reacted by carol (twice, counts once) and by himself (ignored) -> 1*5 + 2 = 7
+select pg_temp.check((select reputation = 7 and likes = 1 from member_stats() where id = '00000000-0000-0000-0000-00000000000b'), 'reputation counts distinct other reactors only');
 reset role;
 
 -- ===== Moderation =====
@@ -123,7 +125,7 @@ select pg_temp.check((select count(*) = 1 from messages where body = 'ערוך')
 update messages set deleted = true where body = 'ערוך';
 select pg_temp.check((select deleted and body = '' from messages where reply_to is not null and channel_id = (select id from channels where is_main)), 'mod soft delete wipes body');
 delete from reactions;
-select pg_temp.check((select count(*) = 1 from reactions), 'cannot remove others likes');
+select pg_temp.check((select count(*) = 3 from reactions), 'cannot remove others reactions');
 select pg_temp.check((select count(*) = 0 from channel_reads where user_id <> auth.uid()), 'read markers are private');
 reset role;
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
@@ -138,7 +140,7 @@ select pg_temp.check((select author_id is null and anonymous from messages where
 select pg_temp.check((select count(*) = 1 from anon_authors), 'author sees own anonymous items');
 update messages set body = 'עריכה אנונימית' where body = 'הודעה אנונימית';
 select pg_temp.check((select count(*) = 1 from messages where body = 'עריכה אנונימית'), 'anonymous author can edit own message');
-select pg_temp.denied($$insert into reactions (message_id, user_id) select id, auth.uid() from messages where body = 'עריכה אנונימית'$$, 'cannot like own anonymous message');
+insert into reactions (message_id, user_id, emoji) select id, auth.uid(), '😊' from messages where body = 'עריכה אנונימית';
 reset role;
 
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
@@ -231,6 +233,70 @@ reset role;
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
 select pg_temp.check((select count(*) = 0 from dm_messages), 'outsiders cannot read private conversations');
 select pg_temp.denied($$select send_dm(1, 'intrude')$$, 'outsider cannot write into a conversation');
+reset role;
+
+-- ===== Media, pins, stars, unread =====
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select send_message((select id from channels where is_main), '', null, false,
+  '{"type":"image","path":"m/0f8fad5b-d9cb-469f-a165-70867728950e.jpg","width":800,"height":600}'::jsonb);
+select pg_temp.check((select count(*) = 1 from messages where body = '' and attachment ->> 'type' = 'image'), 'photo message without text');
+select pg_temp.denied($$select send_message((select id from channels where is_main), '', null, false, '{"type":"image","path":"../evil.sh"}'::jsonb)$$, 'bad attachment path rejected');
+select pg_temp.denied($$select send_message((select id from channels where is_main), '')$$, 'empty message rejected');
+select send_message((select id from channels where is_main), 'הועבר', null, false, null, true);
+select pg_temp.check((select forwarded from messages where body = 'הועבר'), 'forwarded flag stored');
+update messages set pinned_at = now() where body = 'בשמי זה בסדר';
+select pg_temp.check((select pinned_at is null from messages where body = 'בשמי זה בסדר'), 'pins cannot be set directly');
+select set_message_pinned((select id from messages where body = 'בשמי זה בסדר'), true);
+select pg_temp.check((select pinned_at is not null and pinned_by = auth.uid() from messages where body = 'בשמי זה בסדר'), 'member pins a message');
+update messages set attachment = null, forwarded = false where body = 'הועבר';
+select pg_temp.check((select forwarded from messages where body = 'הועבר'), 'forwarded/attachment are immutable');
+insert into stars (user_id, kind, item_id) select auth.uid(), 'room', id from messages where body = 'בשמי זה בסדר';
+select mark_room_unread((select id from messages where body = 'שלום לכולם'));
+select pg_temp.check((select unread >= 1 from my_rooms() where is_main), 'mark as unread from a message');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+select pg_temp.check((select count(*) = 0 from stars), 'stars are private');
+select pg_temp.check((select count(*) = 1 from messages where pinned_at is not null), 'pins are visible to all');
+select set_message_pinned((select id from messages where body = 'בשמי זה בסדר'), false);
+select pg_temp.check((select count(*) = 0 from messages where pinned_at is not null), 'members can unpin');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+update messages set deleted = true where body = '' and attachment is not null;
+select pg_temp.check((select count(*) = 0 from messages where attachment is not null), 'deleting a photo message removes the attachment');
+reset role;
+
+-- ===== Profile photo =====
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+update profiles set avatar_path = 'a/0f8fad5b-d9cb-469f-a165-70867728950e.jpg' where id = auth.uid();
+select pg_temp.check((select avatar_path is not null from profiles where id = auth.uid()), 'member sets own profile photo');
+select pg_temp.denied($$update profiles set avatar_path = 'm/../../x.sh' where id = auth.uid()$$, 'invalid photo path rejected');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+update profiles set avatar_path = null where id = '00000000-0000-0000-0000-00000000000b';
+select pg_temp.check((select avatar_path is not null from profiles where id = '00000000-0000-0000-0000-00000000000b'), 'others cannot change a profile photo');
+reset role;
+
+-- ===== DM reactions and replies keep the anonymous side hidden =====
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+select set_dm_closed(2, false);
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000c');
+select send_dm(2, 'עוד שאלה', (select id from dm_messages where body = 'מי אתה?'));
+select pg_temp.check((select reply_to is not null from dm_messages where body = 'עוד שאלה'), 'DM quote reply');
+select pg_temp.check((select toggle_dm_reaction((select id from dm_messages where body = 'מי אתה?'), '😂')), 'hidden side reacts');
+select pg_temp.check((select user_id is null and hidden from dm_reactions), 'hidden reaction stores no user');
+select pg_temp.check((select not toggle_dm_reaction((select id from dm_messages where body = 'מי אתה?'), '😂')), 'second toggle removes reaction');
+select toggle_dm_reaction((select id from dm_messages where body = 'מי אתה?'), '👍');
+select mark_dm_unread((select id from dm_messages where body = 'מי אתה?'));
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+select pg_temp.check((select count(*) = 1 and bool_and(user_id is null) from dm_reactions), 'recipient sees reaction but not who');
+select toggle_dm_reaction((select id from dm_messages where body = 'עוד שאלה'), '🙏');
+select pg_temp.check((select count(*) = 1 from dm_reactions where user_id = auth.uid()), 'visible side reacts under own id');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select pg_temp.check((select count(*) = 0 from dm_reactions), 'outsiders cannot see DM reactions');
+select pg_temp.denied($$select toggle_dm_reaction((select min(id) from dm_messages), '👍')$$, 'outsiders cannot react in DMs');
 reset role;
 
 -- ===== Bans =====

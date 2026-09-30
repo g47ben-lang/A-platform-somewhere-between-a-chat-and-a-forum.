@@ -27,10 +27,10 @@ interface AppState {
   reloadConversations: () => Promise<void>;
 }
 
-const Ctx = createContext<AppState | null>(null);
+export const AppCtx = createContext<AppState | null>(null);
 
 export function useApp(): AppState {
-  const v = useContext(Ctx);
+  const v = useContext(AppCtx);
   if (!v) throw new Error('useApp outside AppProvider');
   return v;
 }
@@ -126,7 +126,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const my = meRef.current;
           if (my && m.author_id !== my.id && m.body.includes(`@${my.display_name}`)) {
             const who = m.anonymous ? 'אנונימי' : profilesRef.current.get(m.author_id ?? '')?.display_name ?? 'מישהו';
-            notify(`${who} הזכיר/ה אותך`, m.body);
+            notify(`${who} הזכיר אותך`, m.body);
           }
         })
         .on('postgres_changes', { event: '*', schema: 'public', table: 'dm_messages' }, (p) => {
@@ -191,5 +191,5 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [session, loading, me, profiles, rooms, schemaOutdated, conversations, online, active, recovering, nameOf, reloadMe, reloadProfiles, reloadRooms, reloadConversations],
   );
 
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+  return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;
 }

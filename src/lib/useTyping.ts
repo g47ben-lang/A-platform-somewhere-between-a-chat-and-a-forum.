@@ -60,7 +60,7 @@ export function useTyping(topic: string | null, myName: string | undefined) {
 
   const names = [...typers.values()].map((t) => t.name ?? 'מישהו');
   let label = '';
-  if (names.length === 1) label = `${names[0]} מקליד/ה…`;
+  if (names.length === 1) label = `${names[0]} מקליד…`;
   else if (names.length === 2) label = `${names[0]} ו${names[1]} מקלידים…`;
   else if (names.length > 2) label = `${names.length} אנשים מקלידים…`;
 
