@@ -252,6 +252,8 @@ function Bubble({
       data-mid={m.id}
       className={`b-row ${m.mine ? 'mine' : 'theirs'} ${grouped ? 'grouped' : ''} ${selected ? 'selected' : ''} ${props.highlightId === m.id ? 'flash' : ''}`}
       onClick={(e) => {
+        // Tap-to-show-actions is for touch screens; with a mouse the bar appears on hover only.
+        if (!matchMedia('(hover: none)').matches) return;
         if ((e.target as HTMLElement).closest('button, a, video, img, .b-toolbar')) return;
         onSelect();
       }}

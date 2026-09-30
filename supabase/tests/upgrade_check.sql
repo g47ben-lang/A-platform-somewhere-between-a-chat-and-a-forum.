@@ -11,7 +11,8 @@ begin
   if not exists (select 1 from messages m join channels c on c.id = m.channel_id
                  where c.name = 'שאלות ועזרה' and m.body = 'שאלה') then raise exception 'FAIL: thread kept its room'; end if;
   if exists (select 1 from messages where channel_id is null) then raise exception 'FAIL: message without room'; end if;
-  if (select count(*) from reactions) <> 1 or exists (select 1 from reactions where emoji = 'like') then raise exception 'FAIL: reactions'; end if;
+  -- v1 emoji stays an emoji reaction; the v2 "like" ends up as a reputation like
+  if (select count(*) from reactions) + (select count(*) from message_likes) <> 1 or exists (select 1 from reactions where emoji = 'like') then raise exception 'FAIL: reactions/likes'; end if;
   if (select count(*) from threads where migrated_message_id is null) <> 0 then raise exception 'FAIL: unmigrated threads'; end if;
 end $$;
 \echo UPGRADE CHECK PASSED

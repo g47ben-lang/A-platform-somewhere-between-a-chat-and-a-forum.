@@ -814,7 +814,6 @@ button.author:hover, .title-link:hover { text-decoration: underline; }
 
 .b-toolbar { display: none; align-items: center; gap: 4px; flex-shrink: 0; }
 @media (hover: hover) { .b-row:hover .b-toolbar { display: flex; } }
-.b-row.selected .b-toolbar, .b-toolbar:focus-within { display: flex; }
 .b-quick, .b-tools { display: flex; align-items: center; padding: 2px; border-radius: 18px; background: var(--surface); box-shadow: var(--shadow-1); }
 .emoji-btn { width: 32px; height: 32px; border: none; background: none; border-radius: 50%; cursor: pointer; font-size: 18px; line-height: 1; }
 .emoji-btn:hover { background: var(--hover); transform: scale(1.12); }
@@ -949,4 +948,34 @@ button.author:hover, .title-link:hover { text-decoration: underline; }
   .b-row.mine .b-toolbar { left: 0; }
   .b-toolbar { bottom: calc(100% + 4px); }
   .emoji-grid { grid-template-columns: repeat(8, 1fr); }
+}
+
+/* =====================================================================
+   v5.1: one compact action pill glued to the bubble's inner top corner
+   ===================================================================== */
+.b-toolbar {
+  top: -20px; bottom: auto !important; height: 36px; padding: 0 4px; gap: 0;
+  background: var(--surface); border-radius: 18px; box-shadow: 0 1px 3px rgba(60, 64, 67, 0.3), 0 1px 6px rgba(60, 64, 67, 0.15);
+}
+.b-quick, .b-tools { background: none; box-shadow: none; padding: 0; border-radius: 0; }
+.b-tools { border-inline-start: 1px solid var(--divider); margin-inline-start: 2px; padding-inline-start: 2px; }
+.b-toolbar .like-btn { width: 32px; height: 32px; box-shadow: none; background: none; color: var(--text-2); }
+.b-toolbar .like-btn:hover { background: var(--hover); color: var(--primary); }
+.b-toolbar .like-btn.on { background: none; color: var(--primary); }
+.b-toolbar .like-btn + .b-quick { border-inline-start: 1px solid var(--divider); margin-inline-start: 2px; padding-inline-start: 2px; }
+.b-toolbar .emoji-btn { width: 30px; height: 30px; font-size: 17px; }
+.b-toolbar .icon-btn.small { width: 30px; height: 30px; }
+.b-row.theirs .b-toolbar { right: calc(100% - 28px); left: auto; }
+.b-row.mine .b-toolbar { left: calc(100% - 28px); right: auto; top: -34px; }  /* no name line above my bubbles */
+
+/* show on hover (mouse) or after a tap (touch) only; never stuck open */
+.b-toolbar, .b-row.selected .b-toolbar { display: none; }
+@media (hover: hover) { .b-row:hover .b-toolbar { display: flex; } }
+@media (hover: none) { .b-row.selected .b-toolbar { display: flex; } }
+.b-row:has(.b-toolbar :focus-visible) .b-toolbar { display: flex; }
+
+@media (max-width: 900px) {
+  .b-toolbar { top: -42px; }
+  .b-row.theirs .b-toolbar { right: 0; }
+  .b-row.mine .b-toolbar { left: 0; }
 }

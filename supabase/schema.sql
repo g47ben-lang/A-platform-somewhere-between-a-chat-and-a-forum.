@@ -156,6 +156,19 @@ begin
   end if;
 end $$;
 
+-- One-time cleanups, recorded so re-running this file never repeats them.
+create table if not exists schema_migrations (name text primary key, applied_at timestamptz not null default now());
+alter table schema_migrations enable row level security;  -- no policies: invisible to the API
+do $$
+begin
+  if not exists (select 1 from schema_migrations where name = 'v5_thumbs_to_likes') then
+    -- 👍 reactions that became likes in v5 would otherwise show twice (emoji + like).
+    delete from reactions r using message_likes l
+     where r.emoji = '👍' and l.message_id = r.message_id and l.user_id = r.user_id;
+    insert into schema_migrations (name) values ('v5_thumbs_to_likes');
+  end if;
+end $$;
+
 -- ---------- Profile walls ----------
 create table if not exists wall_posts (
   id          bigint generated always as identity primary key,

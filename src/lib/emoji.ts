@@ -172,7 +172,8 @@ export const EMOJI_CATEGORIES: EmojiCategory[] = [
   },
 ];
 
-export const QUICK_DEFAULT = ['👍', '🙏', '😂'];
+// 👍 is left out: the like button (reputation) plays that role.
+export const QUICK_DEFAULT = ['😂', '🙏', '🔥'];
 
 const RECENT_KEY = 'recent-emoji';
 
@@ -195,7 +196,7 @@ export function rememberEmoji(e: string) {
 
 /** Three reactions shown on hover: most recent first, padded with defaults. */
 export function quickReactions(): string[] {
-  return [...new Set([...recentEmoji(), ...QUICK_DEFAULT])].slice(0, 3);
+  return [...new Set([...recentEmoji().filter((e) => e !== '👍'), ...QUICK_DEFAULT])].slice(0, 3);
 }
 
 // Extra Hebrew search words for common needs.
