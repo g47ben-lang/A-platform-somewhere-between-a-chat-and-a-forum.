@@ -198,10 +198,23 @@ export function quickReactions(): string[] {
   return [...new Set([...recentEmoji(), ...QUICK_DEFAULT])].slice(0, 3);
 }
 
+// Extra Hebrew search words for common needs.
+const EXTRA: Record<string, string> = {
+  '😂': 'מצחיק חחח', '🤣': 'מצחיק חחח', '👍': 'אחלה סבבה בסדר', '🙏': 'בעזרת השם אמן', '👏': 'יישר כח ישר כוח',
+  '💪': 'חזק ואמץ', '🎉': 'מזל טוב מזלטוב', '❤️': 'אוהב', '🔥': 'חזק מטורף', '💯': 'בדיוק נכון', '🤔': 'מעניין',
+  '😴': 'עייף לילה', '☕': 'בוקר', '📖': 'שיעור חברותא סדר', '🕯️': 'שבת שלום', '🍷': 'שבת קודש', '✅': 'סגור אישור',
+};
+
+/** Hebrew search over emoji words, extra words and category names ("אוכל", "חגים"). */
 export function searchEmoji(q: string): string[] {
-  const t = q.trim();
-  if (!t) return [];
+  const terms = q.trim().split(/\s+/).filter(Boolean);
+  if (!terms.length) return [];
   const out = new Set<string>();
-  for (const c of EMOJI_CATEGORIES) for (const [e, words] of c.items) if (words.includes(t)) out.add(e);
+  for (const c of EMOJI_CATEGORIES) {
+    for (const [e, words] of c.items) {
+      const hay = `${words} ${EXTRA[e] ?? ''} ${c.label}`;
+      if (terms.every((t) => hay.includes(t))) out.add(e);
+    }
+  }
   return [...out];
 }

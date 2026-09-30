@@ -920,3 +920,33 @@ button.author:hover, .title-link:hover { text-decoration: underline; }
 .b-reactions .like-chip { height: 26px; padding: 0 10px; border-radius: 13px; gap: 5px; }
 .b-reactions .like-chip:not(.on) { color: var(--primary); border-color: var(--primary); }
 .b-reactions .like-chip.on { background: var(--primary); color: var(--on-primary); border-color: transparent; }
+
+/* =====================================================================
+   v5 tweaks: toolbar above the bubble (Google Chat), fixed emoji tabs
+   ===================================================================== */
+.stream.bubbles { padding-top: 44px; }
+.b-line { position: relative; }
+.b-row.mine .b-line { flex-direction: row; }
+.b-toolbar {
+  position: absolute; bottom: calc(100% + 4px); z-index: 6;
+  display: none; align-items: center; gap: 4px; white-space: nowrap;
+}
+/* Sits on the bubble's top corner that faces the middle of the screen (Google Chat), so it never
+   covers the author's name. RTL: other people's bubbles hug the right edge, mine the left. */
+.b-toolbar { bottom: calc(100% - 16px); }
+.b-row.theirs .b-toolbar { right: calc(100% - 36px); }
+.b-row.mine .b-toolbar { left: calc(100% - 36px); bottom: calc(100% + 2px); }
+.like-btn { width: 34px; height: 34px; }
+
+.emoji-picker { width: 384px; }
+.emoji-tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 2px; overflow: visible; }
+.emoji-tabs button { width: auto; height: 34px; font-size: 17px; }
+.emoji-grid { grid-template-columns: repeat(9, 1fr); }
+
+@media (max-width: 900px) {
+  /* phones: no room beside the bubble, so the bar sits just above it */
+  .b-row.theirs .b-toolbar { right: 0; }
+  .b-row.mine .b-toolbar { left: 0; }
+  .b-toolbar { bottom: calc(100% + 4px); }
+  .emoji-grid { grid-template-columns: repeat(8, 1fr); }
+}

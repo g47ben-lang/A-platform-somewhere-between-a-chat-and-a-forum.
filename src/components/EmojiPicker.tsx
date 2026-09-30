@@ -59,7 +59,7 @@ export default function EmojiPicker({ anchor, onPick, onClose }: Props) {
       >
         <div className="emoji-search">
           <Icon name="search" size={18} />
-          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="חיפוש אימוג'י (למשל: שמחה, ספר, חנוכה)" />
+          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="חיפוש אימוג'י: שמחה, ספר, חנוכה, אוכל…" />
         </div>
         <div className="emoji-tabs" role="tablist">
           {recent.length > 0 && (
