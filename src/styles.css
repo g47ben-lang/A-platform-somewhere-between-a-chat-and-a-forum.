@@ -1198,3 +1198,4 @@ button.author:hover, .title-link:hover { text-decoration: underline; }
 @media (max-width: 600px) { .more-notice { bottom: 84px; inset-inline-end: 16px; } }
 
 .topbar-end { display: flex; align-items: center; gap: 6px; }
+.resend-row { display: flex; justify-content: flex-start; margin-top: -8px; }

@@ -139,7 +139,7 @@ PGHOST=localhost PGUSER=postgres supabase/tests/run.sh
    אחרי השמירה, "שכחת סיסמה" עובד.
 3. **הגבלת קצב:** ב-Authentication ← Rate Limits מעלים את "emails per hour" ל-100.
 4. **כתובת האתר:** ב-Authentication ← URL Configuration, ב-Site URL, שמים את כתובת האתר ב-GitHub Pages כדי שקישורי השחזור יחזרו לאתר.
-5. **אימות מייל בהרשמה (לא חובה):** ב-Authentication ← Sign In / Providers ← Email מדליקים את **Confirm email**. החשבון `shmuelshmuel@gmail.com` מאומת אוטומטית ולא צריך אימות.
+5. **אימות מייל חובה בהרשמה:** ב-Authentication ← Sign In / Providers ← Email מדליקים את **Confirm email**. החשבון `shmuelshmuel@gmail.com` מאומת אוטומטית ולא צריך אימות.
 6. **הפונקציה שמכינה ושולחת את המיילים:**
    - ב-Edge Functions ← Deploy a new function ← Via Editor, נותנים שם `send-emails`, מדביקים את כל התוכן של `supabase/functions/send-emails/index.ts` ולוחצים Deploy.
    - בהגדרות הפונקציה **מכבים את Verify JWT** (Enforce JWT Verification).

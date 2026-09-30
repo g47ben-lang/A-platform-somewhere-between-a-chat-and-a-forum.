@@ -84,7 +84,7 @@ export function errorText(err: unknown): string {
   const msg = (err as { message?: string })?.message ?? String(err);
   if (/Invalid login credentials/i.test(msg)) return 'אימייל או סיסמה שגויים';
   if (/already registered/i.test(msg)) return 'כתובת האימייל כבר רשומה';
-  if (/Email not confirmed/i.test(msg)) return 'יש לאשר קודם את כתובת האימייל';
+  if (/Email not confirmed/i.test(msg)) return 'עוד לא אימתת את כתובת האימייל. לוחצים על הקישור שנשלח אליך במייל, ואז מתחברים.';
   if (/Password should be/i.test(msg)) return 'הסיסמה קצרה מדי';
   if (/rate limit/i.test(msg)) return 'יותר מדי ניסיונות. נסו שוב בעוד כמה דקות';
   if (/row-level security|permission denied/i.test(msg)) return 'אין הרשאה לפעולה הזו';

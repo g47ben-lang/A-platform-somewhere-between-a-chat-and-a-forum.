@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { appUrl, OWNER_EMAIL, OWNER_LOGIN, supabase, SITE_NAME } from '../supabase';
 import { errorText } from '../lib/format';
 import Icon from '../components/Icon';
@@ -17,6 +17,28 @@ export default function AuthPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
+  // Address waiting for email confirmation: offers "send the link again".
+  const [unconfirmed, setUnconfirmed] = useState('');
+  const [resent, setResent] = useState(false);
+
+  // Back from the confirmation link. If it was opened in another browser or on another device, the
+  // sign-in can't be completed here, but the address is already confirmed: just log in.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    if (!q.has('code') && !q.has('error_description')) return;
+    const t = setTimeout(() => {
+      if (q.has('error_description')) setError('הקישור לא תקין או שפג תוקפו. אפשר לבקש קישור חדש.');
+      else setInfo('כתובת האימייל אומתה. אפשר להתחבר עם האימייל והסיסמה.');
+      window.history.replaceState(null, '', window.location.pathname + window.location.hash);
+    }, 1500);
+    return () => clearTimeout(t);
+  }, []);
+
+  async function resend() {
+    const { error } = await supabase.auth.resend({ type: 'signup', email: unconfirmed, options: { emailRedirectTo: appUrl() } });
+    if (error) return setError(errorText(error));
+    setResent(true);
+  }
 
   function switchMode(m: Mode) {
     setMode(m);
@@ -39,6 +61,10 @@ export default function AuthPage() {
       if (mode === 'login') {
         const id = email.trim();
         const { error } = await supabase.auth.signInWithPassword({ email: id.toLowerCase() === OWNER_LOGIN ? OWNER_EMAIL : id, password });
+        if (error && /Email not confirmed/i.test(error.message)) {
+          setUnconfirmed(id);
+          setResent(false);
+        }
         if (error) throw error;
       } else if (mode === 'signup') {
         const { data, error } = await supabase.auth.signUp({
@@ -47,7 +73,11 @@ export default function AuthPage() {
           options: { data: { display_name: name.trim(), terms_accepted_at: new Date().toISOString() }, emailRedirectTo: appUrl() },
         });
         if (error) throw error;
-        if (!data.session) setInfo('שלחנו אליך מייל לאימות הכתובת. לאחר האימות אפשר להתחבר.');
+        if (!data.session) {
+          setUnconfirmed(email.trim());
+          setResent(false);
+          setInfo(`שלחנו מייל לאימות אל ${email.trim()}. לוחצים על הקישור שבמייל ואז מתחברים. ההרשמה לא מושלמת בלי האימות. לא הגיע? כדאי לבדוק גם בספאם.`);
+        }
       } else {
         const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: appUrl() });
         if (error) throw error;
@@ -117,6 +147,15 @@ export default function AuthPage() {
 
         {error && <div className="alert error"><Icon name="error" size={18} /> {error}</div>}
         {info && <div className="alert info"><Icon name="mail" size={18} /> {info}</div>}
+        {unconfirmed && (
+          <div className="resend-row">
+            {resent ? (
+              <span className="muted small">נשלח שוב. בדוק את תיבת הדואר (וגם את הספאם).</span>
+            ) : (
+              <button type="button" className="btn text small" onClick={resend}>שליחת מייל האימות שוב</button>
+            )}
+          </div>
+        )}
 
         <div className="auth-actions">
           {mode === 'login' && (
