@@ -774,7 +774,7 @@ begin
   foreach t in array array['thread_likes', 'thread_reads', 'threads'] loop
     if to_regclass('public.' || t) is not null then execute format('truncate %I cascade', t); end if;
   end loop;
-  delete from auth.users;
+  delete from auth.users where id is not null;  -- Supabase rejects a DELETE without WHERE
   insert into channels (name, description, is_main) values ('הצ''אט הראשי', 'השיחה של כל הקהילה', true);
 end $$;
 
