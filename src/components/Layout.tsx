@@ -112,6 +112,10 @@ export default function Layout() {
             <Icon name="star" />
             <span className="nav-label">מסומנות בכוכב</span>
           </NavLink>
+          <NavLink to="/events" className="nav-item">
+            <Icon name="calendar_month" />
+            <span className="nav-label">לוח אירועים</span>
+          </NavLink>
           <NavLink to="/polls" className="nav-item">
             <Icon name="ballot" />
             <span className="nav-label">סקרים</span>

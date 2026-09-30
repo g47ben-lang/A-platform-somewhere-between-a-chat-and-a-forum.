@@ -4,9 +4,9 @@ import { ICON_PATHS } from './iconPaths';
 
 const ICONS = [
   'add', 'add_circle', 'add_photo_alternate', 'ballot', 'add_reaction', 'admin_panel_settings', 'arrow_downward', 'block',
-  'cake', 'campaign', 'chat', 'check', 'close', 'content_copy', 'delete', 'download', 'edit', 'error',
-  'format_quote', 'forum', 'forward', 'group', 'home', 'keep', 'label', 'link', 'lock', 'logout', 'mail',
-  'mark_chat_unread', 'menu', 'mood', 'more_vert', 'person', 'person_add', 'photo_camera', 'remove', 'reply', 'schedule',
+  'cake', 'calendar_month', 'campaign', 'chat', 'chevron_left', 'chevron_right', 'check', 'close', 'content_copy', 'delete', 'download', 'edit', 'error',
+  'format_quote', 'forum', 'forward', 'group', 'home', 'hourglass_top', 'keep', 'label', 'link', 'lock', 'logout', 'mail',
+  'mark_chat_unread', 'menu', 'mood', 'more_vert', 'newspaper', 'person', 'person_add', 'photo_camera', 'remove', 'reply', 'schedule',
   'search', 'send', 'settings', 'shield_person', 'star', 'thumb_up', 'videocam', 'visibility',
   'visibility_off', 'workspace_premium',
 ] as const;

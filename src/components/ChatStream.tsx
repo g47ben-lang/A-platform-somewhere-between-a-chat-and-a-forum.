@@ -35,6 +35,8 @@ export interface StreamItem {
   reactions: ReactionSummary[];
   /** Automatic message (birthday greeting), shown centered without an author. */
   system?: boolean;
+  /** A calendar event scheduled from this message (blessings room). */
+  eventLabel?: string | null;
   /** Announcement of a poll: shows a button to its page. */
   pollId?: number | null;
   /** Owner only: the real author of an anonymous message. */
@@ -327,6 +329,11 @@ function Bubble({
                   <div className="b-text">
                     <RichText text={m.body} names={names} myName={me?.display_name} />
                   </div>
+                )}
+                {m.eventLabel && (
+                  <Link to="/events" className="b-event">
+                    <Icon name="calendar_month" size={16} /> בלוח: {m.eventLabel}
+                  </Link>
                 )}
                 {m.pollId && (
                   <Link to={`/polls/${m.pollId}`} className="b-poll">

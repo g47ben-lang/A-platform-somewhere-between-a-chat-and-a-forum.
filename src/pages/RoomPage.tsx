@@ -16,6 +16,10 @@ import ForwardDialog from '../components/ForwardDialog';
 import Icon from '../components/Icon';
 import { useProfileCard } from '../components/ProfileCard';
 import RoomDialog from '../components/RoomDialog';
+import Highlights from '../components/Highlights';
+import GagMaker from '../components/GagMaker';
+import { nextCountdown } from '../lib/zmanim';
+import { hebrewLabel } from '../lib/hebrew';
 
 const PAGE = 60;
 
@@ -47,6 +51,12 @@ export default function RoomPage() {
   meIdRef.current = me?.id;
   const [stars, setStars] = useState<Set<number>>(new Set());
   const [pinned, setPinned] = useState<Message[]>([]);
+  const [gagOpen, setGagOpen] = useState(false);
+  const [purpose, setPurpose] = useState<string | null>(null);
+  const [schedule, setSchedule] = useState<{ on: boolean; title: string; date: string }>({ on: false, title: '', date: '' });
+  // Calendar events announced by messages of this room (blessings room): message id -> label.
+  const [msgEvents, setMsgEvents] = useState<Map<number, string>>(new Map());
+  const countdown = useMemo(() => nextCountdown(), []);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [editing, setEditing] = useState<Message | null>(null);
   const [forward, setForward] = useState<Message | null>(null);
@@ -67,6 +77,13 @@ export default function RoomPage() {
     reloadRooms();
   }, [roomId, reloadRooms]);
 
+  useEffect(() => {
+    setPurpose(null);
+    setSchedule({ on: false, title: '', date: '' });
+    if (!roomId) return;
+    supabase.from('channels').select('purpose').eq('id', roomId).maybeSingle().then(({ data }) => setPurpose((data?.purpose as string | null) ?? null));
+  }, [roomId]);
+
   const loadExtras = useCallback(async (list: Message[]) => {
     const ids = list.map((m) => m.id);
     if (!ids.length) return;
@@ -86,6 +103,14 @@ export default function RoomPage() {
       setAnonAuthor((prev) => new Map([...prev, ...rows.map((x) => [x.item_id, x.author_id] as [number, string])]));
     }
     if (s.data) setStars((prev) => new Set([...prev, ...(s.data as { item_id: number }[]).map((x) => x.item_id)]));
+    const { data: ev } = await supabase.from('events').select('message_id, title, starts_on').in('message_id', ids);
+    if (ev?.length) {
+      setMsgEvents((prev) => {
+        const next = new Map(prev);
+        for (const e of ev as { message_id: number; title: string; starts_on: string }[]) next.set(e.message_id, `${e.title} · ${hebrewLabel(e.starts_on)}`);
+        return next;
+      });
+    }
   }, []);
 
   const loadPins = useCallback(async () => {
@@ -188,6 +213,7 @@ export default function RoomPage() {
         anonymous: m.anonymous,
         mine: m.author_id === me?.id || mineAnon.has(m.id),
         pollId: m.poll_id,
+        eventLabel: msgEvents.get(m.id) ?? null,
         system: m.system,
         revealedAuthor: isOwner && m.anonymous && anonAuthor.has(m.id) ? nameOf(anonAuthor.get(m.id)) : null,
         createdAt: m.created_at,
@@ -214,7 +240,7 @@ export default function RoomPage() {
         })(),
       };
     });
-  }, [messages, reactions, likes, mineAnon, anonAuthor, isOwner, stars, byId, me, nameOf]);
+  }, [messages, reactions, likes, mineAnon, anonAuthor, isOwner, msgEvents, stars, byId, me, nameOf]);
 
   async function loadOlder() {
     const first = messages?.[0];
@@ -251,6 +277,15 @@ export default function RoomPage() {
     }
     const m = data as Message;
     setMessages((prev) => (prev && !prev.some((x) => x.id === m.id) ? [...prev, m] : prev));
+    if (purpose === 'blessings' && schedule.on && schedule.title.trim() && schedule.date && !opts.anonymous) {
+      const { error: evError } = await supabase.rpc('add_event', { p_title: schedule.title.trim(), p_starts: schedule.date, p_kind: 'simcha', p_message: m.id });
+      if (evError) toast(errorText(evError), 'error');
+      else {
+        setMsgEvents((prev) => new Map(prev).set(m.id, `${schedule.title.trim()} · ${hebrewLabel(schedule.date)}`));
+        toast('השמחה שובצה בלוח האירועים');
+      }
+      setSchedule({ on: false, title: '', date: '' });
+    }
     if (opts.anonymous) setMineAnon((prev) => new Set(prev).add(m.id));
     setReplyTo(null);
     setFirstUnreadId(null);
@@ -385,6 +420,12 @@ export default function RoomPage() {
 
   const headerTools = (
     <div className="room-tools">
+      {canWrite && (
+        <button className="chip-btn" onClick={() => setGagOpen(true)} title="מחולל מבזקים">
+          <Icon name="newspaper" size={18} />
+          <span className="chip-label">מבזק</span>
+        </button>
+      )}
       <button className={`chip-btn ${panel === 'pins' ? 'on' : ''}`} onClick={() => setPanel((v) => (v === 'pins' ? null : 'pins'))} title="לוח הודעות מוצמדות">
         <Icon name="keep" size={18} />
         {pinned.length > 0 && <span>{pinned.length}</span>}
@@ -436,6 +477,12 @@ export default function RoomPage() {
               <span className="hero-org">{SITE_NAME}</span>
               <h1>{room.name}</h1>
               <p>{online.size > 0 ? `${online.size} מחוברים עכשיו` : room.description}</p>
+              {countdown && (
+                <span className="countdown" title={countdown.date.toLocaleDateString('he-IL')}>
+                  <Icon name="hourglass_top" size={14} />
+                  {countdown.days === 0 ? `היום: ${countdown.label}` : `עוד ${countdown.days} ימים ל${countdown.label}`}
+                </span>
+              )}
             </div>
             {headerTools}
           </header>
@@ -452,6 +499,8 @@ export default function RoomPage() {
             {headerTools}
           </header>
         )}
+
+        {room.is_main && <Highlights />}
 
         <ChatStream
           key={`${room.id}-${linkedId ?? ''}`}
@@ -475,6 +524,22 @@ export default function RoomPage() {
             </>
           }
         />
+
+        {purpose === 'blessings' && canWrite && !editing && (
+          <div className="schedule-bar">
+            <label className="check-row">
+              <input type="checkbox" checked={schedule.on} onChange={(e) => setSchedule({ ...schedule, on: e.target.checked })} />
+              <span><Icon name="calendar_month" size={16} /> שיבוץ השמחה בלוח האירועים</span>
+            </label>
+            {schedule.on && (
+              <>
+                <input className="schedule-title" value={schedule.title} maxLength={100} placeholder="למשל: חתונת משה כהן" onChange={(e) => setSchedule({ ...schedule, title: e.target.value })} />
+                <input type="date" value={schedule.date} onChange={(e) => setSchedule({ ...schedule, date: e.target.value })} />
+                {schedule.date && <span className="muted small">{hebrewLabel(schedule.date)}</span>}
+              </>
+            )}
+          </div>
+        )}
 
         <Composer
           ref={composer}
@@ -555,6 +620,7 @@ export default function RoomPage() {
       )}
 
       {editRoom && <RoomDialog room={room} onClose={() => setEditRoom(false)} />}
+      {gagOpen && <GagMaker roomId={room.id} onClose={() => setGagOpen(false)} onSent={() => undefined} />}
       {forward && <ForwardDialog body={forward.body} attachment={forward.attachment} onClose={() => setForward(null)} />}
     </div>
   );

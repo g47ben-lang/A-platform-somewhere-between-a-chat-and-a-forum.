@@ -165,36 +165,6 @@ create table if not exists poll_votes (
 );
 alter table messages add column if not exists poll_id bigint references polls on delete set null;
 alter table messages add column if not exists system boolean not null default false;  -- automatic (birthdays); no author
-alter table messages add column if not exists gag boolean not null default false;     -- made with the news-flash maker
-
--- Special-purpose rooms created by this file (e.g. 'blessings': מזל טוב וברכות).
-alter table channels add column if not exists purpose text;
-create unique index if not exists channels_purpose on channels (purpose) where purpose is not null;
-insert into channels (name, description, purpose, position)
-select 'מזל טוב וברכות', 'ברכות לשמחות: אירוסין, חתונות, בר מצווה ועוד. אפשר לשבץ את השמחה בלוח האירועים.', 'blessings',
-       coalesce((select max(position) + 1 from channels), 0)
- where not exists (select 1 from channels where purpose = 'blessings');
-
--- ---------- Events calendar ----------
--- Anyone adds yeshiva events. A new event that duplicates or contradicts an existing one (same name on another
--- date, or a similar name on the same date) is saved as 'conflict': the original's author may accept the new
--- date, let the other member edit, or pass it to the admins, who decide.
-create table if not exists events (
-  id             bigint generated always as identity primary key,
-  title          text not null check (char_length(title) between 2 and 100),
-  description    text check (char_length(description) <= 500),
-  starts_on      date not null,
-  ends_on        date check (ends_on is null or ends_on >= starts_on),
-  kind           text not null default 'yeshiva' check (kind in ('yeshiva', 'vaad', 'simcha', 'other')),
-  created_by     uuid references profiles on delete set null,
-  editors        uuid[] not null default '{}',
-  message_id     bigint references messages on delete set null,
-  status         text not null default 'approved' check (status in ('approved', 'conflict')),
-  conflict_with  bigint references events on delete set null,
-  escalated      boolean not null default false,   -- passed to the admins
-  created_at     timestamptz not null default now()
-);
-create index if not exists events_starts_idx on events (starts_on);
 
 -- ---------- Hebrew birthdays ----------
 -- Private: only the member reads his own row. A greeting is posted in the main room on his Hebrew birthday.
@@ -770,7 +740,6 @@ begin
   if auth.uid() is not null then
     new.is_main    := old.is_main;
     new.created_by := old.created_by;
-    new.purpose    := old.purpose;
     if pg_trigger_depth() = 1 then new.last_message_at := old.last_message_at; end if;
     if not is_mod() then
       new.admin_only_post := old.admin_only_post;
@@ -810,7 +779,6 @@ begin
   new.attachment := old.attachment;
   new.poll_id    := old.poll_id;
   new.system     := old.system;
-  new.gag        := old.gag;
   -- pins change only through set_message_pinned()
   if coalesce(current_setting('app.pinning', true), '') <> '1' and auth.uid() is not null then
     new.pinned_at := old.pinned_at;
@@ -1132,160 +1100,6 @@ language sql stable security definer set search_path = public as $$
    order by 3 desc, n.created_at;
 $$;
 
--- ---------- News flash (מבזק) ----------
--- Members with this much reputation (or content removers) may post images made with the news-flash maker.
-create or replace function gag_min_reputation() returns int language sql immutable as $$ select 50 $$;
-
-create or replace function my_reputation() returns int
-language plpgsql stable security definer set search_path = public as $$
-begin
-  return coalesce((select reputation from member_stats() where id = auth.uid()), 0);
-end $$;
-
-create or replace function send_gag(p_channel bigint, p_attachment jsonb, p_caption text default '')
-returns messages
-language plpgsql security definer set search_path = public as $$
-declare
-  ch channels;
-  m messages;
-begin
-  if not is_active() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  if my_reputation() < gag_min_reputation() and not can_remove_content() then
-    raise exception 'מחולל המבזקים פתוח מ-% נקודות מוניטין', gag_min_reputation() using errcode = '42501';
-  end if;
-  if p_attachment is null or not valid_attachment(p_attachment) or p_attachment ->> 'type' <> 'image' then
-    raise exception 'קובץ מצורף לא תקין';
-  end if;
-  select * into ch from channels where id = p_channel;
-  if not found then raise exception 'החדר לא נמצא'; end if;
-  if ch.admin_only_post and not is_mod() then raise exception 'רק מנהלים כותבים בחדר הזה' using errcode = '42501'; end if;
-  insert into messages (channel_id, author_id, body, attachment, gag)
-  values (p_channel, auth.uid(), left(trim(coalesce(p_caption, '')), 4000), p_attachment, true)
-  returning * into m;
-  return m;
-end $$;
-
--- The week's top image (photo, meme or news flash) and top quote, by likes (x2) and emoji reactions.
-create or replace function weekly_highlights()
-returns table (kind text, message_id bigint, channel_id bigint, author_id uuid, anonymous boolean, body text,
-               attachment jsonb, score int)
-language sql stable security definer set search_path = public as $$
-  with scored as (
-    select m.*, (select count(*) from message_likes l where l.message_id = m.id) * 2
-              + (select count(*) from reactions r where r.message_id = m.id) as sc
-      from messages m
-     where m.created_at > now() - interval '7 days' and not m.deleted and not m.system and m.poll_id is null
-       and is_active()
-  )
-  (select 'image', id, channel_id, author_id, anonymous, body, attachment, sc::int from scored
-    where attachment ->> 'type' = 'image' and sc >= 3 order by sc desc, id desc limit 1)
-  union all
-  (select 'quote', id, channel_id, author_id, anonymous, body, null, sc::int from scored
-    where attachment is null and char_length(body) between 8 and 300 and sc >= 3 order by sc desc, id desc limit 1);
-$$;
-
--- ---------- Events calendar: actions ----------
-create or replace function norm_title(t text) returns text
-language sql immutable as $$ select lower(regexp_replace(trim(coalesce(t, '')), '\s+', ' ', 'g')) $$;
-
--- An approved event this one duplicates or contradicts, if any.
-create or replace function event_conflict(p_title text, p_starts date, p_except bigint default null) returns bigint
-language sql stable security definer set search_path = public as $$
-  select e.id from events e
-   where e.status = 'approved' and e.id is distinct from p_except and e.kind <> 'simcha'
-     and ((norm_title(e.title) = norm_title(p_title) and e.starts_on <> p_starts)
-          or (e.starts_on = p_starts and (position(norm_title(p_title) in norm_title(e.title)) > 0
-                                          or position(norm_title(e.title) in norm_title(p_title)) > 0)))
-   order by e.id limit 1;
-$$;
-
-create or replace function add_event(p_title text, p_starts date, p_ends date default null, p_kind text default 'yeshiva',
-                                     p_description text default null, p_message bigint default null)
-returns events
-language plpgsql security definer set search_path = public as $$
-declare
-  c bigint;
-  e events;
-begin
-  if not is_active() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  if p_message is not null and not exists (select 1 from messages where id = p_message and author_id = auth.uid()) then
-    raise exception 'אפשר לקשר רק הודעה שלך';
-  end if;
-  c := case when p_kind = 'simcha' then null else event_conflict(p_title, p_starts) end;
-  insert into events (title, description, starts_on, ends_on, kind, created_by, message_id, status, conflict_with)
-  values (left(trim(p_title), 100), nullif(left(trim(coalesce(p_description, '')), 500), ''), p_starts, p_ends,
-          coalesce(p_kind, 'yeshiva'), auth.uid(), p_message,
-          case when c is null then 'approved' else 'conflict' end, c)
-  returning * into e;
-  return e;
-end $$;
-
--- Author, members he allowed, and admins edit an event. Moving it onto a clash re-checks it.
-create or replace function update_event(p_id bigint, p_title text, p_starts date, p_ends date, p_kind text, p_description text)
-returns events
-language plpgsql security definer set search_path = public as $$
-declare
-  e events;
-  c bigint;
-begin
-  select * into e from events where id = p_id;
-  if not found or not is_active() or not (e.created_by = auth.uid() or auth.uid() = any(e.editors) or is_admin()) then
-    raise exception 'אין הרשאה' using errcode = '42501';
-  end if;
-  c := case when e.status = 'approved' and p_kind <> 'simcha' then event_conflict(p_title, p_starts, p_id) end;
-  update events set title = left(trim(p_title), 100), starts_on = p_starts, ends_on = p_ends, kind = p_kind,
-                    description = nullif(left(trim(coalesce(p_description, '')), 500), ''),
-                    status = case when c is null then status else 'conflict' end,
-                    conflict_with = coalesce(c, conflict_with)
-   where id = p_id returning * into e;
-  return e;
-end $$;
-
-create or replace function delete_event(p_id bigint) returns void
-language plpgsql security definer set search_path = public as $$
-begin
-  if not exists (select 1 from events where id = p_id and is_active() and (created_by = auth.uid() or can_remove_content())) then
-    raise exception 'אין הרשאה' using errcode = '42501';
-  end if;
-  delete from events where id = p_id;
-end $$;
-
--- Settles a clash (p_id is the event marked 'conflict'):
---   original's author: 'accept_new' (take the new date), 'allow_edit' (let the new author edit mine), 'escalate'
---   admins:            'accept_new', 'keep_original', 'keep_both'
---   new event's author: withdraws with delete_event()
-create or replace function resolve_event(p_id bigint, p_action text) returns void
-language plpgsql security definer set search_path = public as $$
-declare
-  n events;
-  o events;
-  owner boolean;
-begin
-  select * into n from events where id = p_id and status = 'conflict';
-  if not found or not is_active() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  select * into o from events where id = n.conflict_with;
-  owner := o.created_by = auth.uid();
-  if not (is_admin() or (owner and p_action in ('accept_new', 'allow_edit', 'escalate'))) then
-    raise exception 'אין הרשאה' using errcode = '42501';
-  end if;
-  if o.id is null or p_action = 'keep_both' then
-    update events set status = 'approved', conflict_with = null, escalated = false where id = n.id;
-  elsif p_action = 'accept_new' then
-    update events set starts_on = n.starts_on, ends_on = n.ends_on, title = n.title,
-                      description = coalesce(n.description, o.description) where id = o.id;
-    delete from events where id = n.id;
-  elsif p_action = 'allow_edit' then
-    update events set editors = array(select distinct unnest(editors || n.created_by)) where id = o.id and n.created_by is not null;
-    delete from events where id = n.id;
-  elsif p_action = 'escalate' then
-    update events set escalated = true where id = n.id;
-  elsif p_action = 'keep_original' then
-    delete from events where id = n.id;
-  else
-    raise exception 'פעולה לא מוכרת';
-  end if;
-end $$;
-
 -- ---------- Email queue: triggers ----------
 create or replace function queue_email(p_user uuid, p_flag text, p_kind text, p_ref text, p_title text, p_body text,
                                        p_link text, p_channel bigint default null, p_conv bigint default null,
@@ -1587,15 +1401,13 @@ begin
   if pw is null or extensions.crypt(coalesce(p_password, ''), pw) <> pw then
     raise exception 'הסיסמה שגויה' using errcode = '42501';
   end if;
-  truncate events, email_queue, email_prefs, nickname_votes, nicknames, birthday_posts, birthdays, feedback, poll_votes, poll_options, polls, dm_reactions, dm_messages, dm_participants, dm_conversations, reactions, message_likes, stars,
+  truncate email_queue, email_prefs, nickname_votes, nicknames, birthday_posts, birthdays, feedback, poll_votes, poll_options, polls, dm_reactions, dm_messages, dm_participants, dm_conversations, reactions, message_likes, stars,
     anon_authors, wall_posts, channel_reads, messages, channels, preapproved_emails, roster restart identity cascade;
   foreach t in array array['thread_likes', 'thread_reads', 'threads'] loop
     if to_regclass('public.' || t) is not null then execute format('truncate %I cascade', t); end if;
   end loop;
   delete from auth.users where id is not null;  -- Supabase rejects a DELETE without WHERE
   insert into channels (name, description, is_main) values ('הצ''אט הראשי', 'השיחה של כל הקהילה', true);
-  insert into channels (name, description, purpose, position)
-  values ('מזל טוב וברכות', 'ברכות לשמחות: אירוסין, חתונות, בר מצווה ועוד. אפשר לשבץ את השמחה בלוח האירועים.', 'blessings', 1);
 end $$;
 
 -- Pin board of a room. Any member may pin; announcement rooms only by mods.
@@ -1854,12 +1666,6 @@ do $$ begin
     grant execute on function email_batch(int), email_done(bigint[], boolean), post_birthdays() to service_role;
   end if;
 end $$;
-revoke execute on function my_reputation(), send_gag(bigint, jsonb, text), weekly_highlights(),
-  add_event(text, date, date, text, text, bigint), update_event(bigint, text, date, date, text, text), delete_event(bigint),
-  resolve_event(bigint, text), event_conflict(text, date, bigint) from anon, public;
-grant execute on function my_reputation(), send_gag(bigint, jsonb, text), weekly_highlights(),
-  add_event(text, date, date, text, text, bigint), update_event(bigint, text, date, date, text, text), delete_event(bigint),
-  resolve_event(bigint, text) to authenticated;
 revoke execute on function add_preapproved(jsonb) from anon, public;
 grant execute on function add_preapproved(jsonb) to authenticated;
 revoke execute on function owner_profile_id() from anon, public;
@@ -1893,7 +1699,6 @@ alter table nicknames        enable row level security;  -- no policies: functio
 alter table nickname_votes   enable row level security;  -- no policies: functions only
 alter table email_prefs      enable row level security;
 alter table email_queue      enable row level security;  -- no policies: triggers and the email job only
-alter table events           enable row level security;
 alter table poll_options     enable row level security;
 alter table poll_votes       enable row level security;
 alter table message_likes    enable row level security;
@@ -1991,10 +1796,6 @@ create policy birthdays_own on birthdays for all using (user_id = auth.uid() and
 drop policy if exists email_prefs_own on email_prefs;
 create policy email_prefs_own on email_prefs for all using (user_id = auth.uid()) with check (user_id = auth.uid());
 
--- events: members read the calendar; all writes go through the functions above
-drop policy if exists events_select on events;
-create policy events_select on events for select using (is_active());
-
 drop policy if exists stars_own on stars;
 create policy stars_own on stars for all using (user_id = auth.uid()) with check (user_id = auth.uid());
 
@@ -2055,7 +1856,7 @@ alter table message_likes replica identity full;
 do $$
 declare t text;
 begin
-  foreach t in array array['messages', 'reactions', 'message_likes', 'profiles', 'channels', 'wall_posts', 'dm_messages', 'dm_reactions', 'polls', 'events'] loop
+  foreach t in array array['messages', 'reactions', 'message_likes', 'profiles', 'channels', 'wall_posts', 'dm_messages', 'dm_reactions', 'polls'] loop
     begin
       execute format('alter publication supabase_realtime add table %I', t);
     exception when duplicate_object then null;

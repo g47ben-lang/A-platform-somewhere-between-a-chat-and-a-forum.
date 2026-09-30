@@ -510,6 +510,51 @@ select mark_dm_read((select conversation_id from dm_messages where id = :dm_id))
 reset role;
 select pg_temp.check((select count(*) = 0 from email_batch() where email = 'bob@x.com'), 'what was already read is not emailed');
 
+-- ===== News flash & weekly highlights =====
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select pg_temp.denied($$select send_gag((select id from channels where is_main), '{"type":"image","path":"m/11111111-1111-1111-1111-111111111111.jpg"}')$$, 'news-flash maker needs reputation');
+update messages set gag = true where author_id = auth.uid();
+reset role;
+select pg_temp.check((select count(*) = 0 from messages where gag), 'gag flag cannot be set by hand');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+select pg_temp.check((select gag from send_gag((select id from channels where is_main), '{"type":"image","path":"m/11111111-1111-1111-1111-111111111111.jpg"}', 'מבזק!')), 'admins may post a news flash');
+select send_message((select id from channels where is_main), 'הציטוט הכי חזק השבוע');
+reset role;
+insert into reactions (message_id, user_id, emoji) select m.id, u, e from messages m,
+  (values ('00000000-0000-0000-0000-00000000000b'::uuid), ('00000000-0000-0000-0000-00000000000d'::uuid)) x(u), (values ('💀'), ('🔥'), ('😂'), ('👏')) y(e) where m.body in ('הציטוט הכי חזק השבוע', 'מבזק!');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select pg_temp.check((select count(*) = 2 from weekly_highlights()), 'weekly highlights: top image and top quote');
+select pg_temp.check((select body = 'הציטוט הכי חזק השבוע' from weekly_highlights() where kind = 'quote'), 'quote of the week');
+reset role;
+
+-- ===== Events calendar =====
+select pg_temp.check((select count(*) = 1 from channels where purpose = 'blessings'), 'blessings room exists');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+select (add_event('שמחת בית השואבה', '2026-10-05')).id as ev1 \gset
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select (add_event('שמחת בית השואבה', '2026-10-07')).id as ev2 \gset
+select pg_temp.check((select status = 'conflict' and conflict_with = :ev1 from events where id = :ev2), 'same event on another date is a conflict');
+update events set title = 'x';
+select pg_temp.check((select count(*) = 0 from events where title = 'x'), 'events change only through functions');
+select pg_temp.check((select status = 'approved' from add_event('מכירת מצוות', '2026-10-05')), 'a different event on the same day is fine');
+select (add_event('מכירת מצוות גדולה', '2026-10-05')).id as ev3 \gset
+select pg_temp.check((select status = 'conflict' from events where id = :ev3), 'a similar name on the same day is a conflict');
+select pg_temp.denied('select resolve_event(' || :ev2 || ', ''accept_new'')', 'only the original''s author or admins settle a clash');
+select pg_temp.denied('select update_event(' || :ev1 || ', ''x'', ''2026-01-01'', null, ''yeshiva'', null)', 'others cannot edit an event');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+select resolve_event(:ev2, 'allow_edit');
+reset role;
+select pg_temp.check((select count(*) = 0 from events where id = :ev2), 'clash settled');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select pg_temp.check((select title = 'שמחת בית השואבה' from update_event(:ev1, 'שמחת בית השואבה', '2026-10-06', null, 'yeshiva', 'באולם')), 'author let the other member edit');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+select resolve_event(:ev3, 'keep_both');
+select pg_temp.check((select status = 'approved' from events where id = :ev3), 'admin decides a clash');
+reset role;
+
 -- ===== Owner (super admin) and inspector =====
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
 select send_dm(start_dm('00000000-0000-0000-0000-0000000000f2', false), 'סוד בין שניים');
@@ -568,7 +613,7 @@ reset role;
 select pg_temp.check((select count(*) = 0 from auth.users) and (select count(*) = 0 from profiles), 'reset removes every account');
 select pg_temp.check((select count(*) = 0 from messages) and (select count(*) = 0 from dm_conversations)
   and (select count(*) = 0 from roster) and (select count(*) = 0 from anon_authors) and (select count(*) = 0 from polls) and (select count(*) = 0 from feedback) and (select count(*) = 0 from nicknames) and (select count(*) = 0 from email_queue), 'reset removes all content');
-select pg_temp.check((select count(*) = 1 and bool_and(is_main) from channels), 'reset leaves an empty main room');
+select pg_temp.check((select count(*) = 2 and count(*) filter (where is_main) = 1 and count(*) filter (where purpose = 'blessings') = 1 from channels) and (select count(*) = 0 from events), 'reset leaves an empty main room and the blessings room');
 insert into auth.users (id, email) values ('00000000-0000-0000-0000-0000000000e0', 'shmuelshmuel@gmail.com');
 select pg_temp.check((select status = 'active' and role = 'admin' from profiles where id = '00000000-0000-0000-0000-0000000000e0'), 'owner signs up again after reset');
 

@@ -3,6 +3,7 @@ import { useApp } from '../AppContext';
 import { supabase } from '../supabase';
 import { errorText } from '../lib/format';
 import { useFeedback } from './Feedback';
+import { hebrewLabel } from '../lib/hebrew';
 
 interface Birthday {
   birth_date: string;
@@ -11,17 +12,12 @@ interface Birthday {
   announce: boolean;
 }
 
-const DAYS = ['א\'', 'ב\'', 'ג\'', 'ד\'', 'ה\'', 'ו\'', 'ז\'', 'ח\'', 'ט\'', 'י\'', 'י"א', 'י"ב', 'י"ג', 'י"ד', 'ט"ו', 'ט"ז', 'י"ז', 'י"ח', 'י"ט', 'כ\'',
-  'כ"א', 'כ"ב', 'כ"ג', 'כ"ד', 'כ"ה', 'כ"ו', 'כ"ז', 'כ"ח', 'כ"ט', 'ל\''];
-
-/** Hebrew day and month of a birth date, e.g. 'י"ב בחשון' (same style as the server's hebrew_label). */
+/** Hebrew day and month of a birth date, e.g. 'י"ב בחשוון'. */
 export function hebrewDay(iso: string, afterSunset: boolean): string {
+  if (!afterSunset) return hebrewLabel(iso);
   const d = new Date(iso + 'T12:00:00Z');
-  if (afterSunset) d.setUTCDate(d.getUTCDate() + 1);
-  const parts = new Intl.DateTimeFormat('he-u-ca-hebrew', { timeZone: 'UTC', day: 'numeric', month: 'long' }).formatToParts(d);
-  const day = Number(parts.find((x) => x.type === 'day')?.value);
-  const month = parts.find((x) => x.type === 'month')?.value ?? '';
-  return `${DAYS[day - 1] ?? day} ב${month.replace(/^ב/, "")}`;
+  d.setUTCDate(d.getUTCDate() + 1);
+  return hebrewLabel(d.toISOString().slice(0, 10));
 }
 
 /** Birth date (private): the Hebrew birthday shows on the profile and gets a greeting in the main room. */
