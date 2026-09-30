@@ -88,4 +88,12 @@ apply schema.sql
 apply schema.sql
 psql -q -v ON_ERROR_STOP=1 -d $DB -f tests/upgrade_check_v8.sql
 
+echo "== upgrade from v9 =="
+fresh_db
+apply tests/fixtures/schema_v9.sql
+psql -q -v ON_ERROR_STOP=1 -d $DB -f tests/upgrade_v9.sql >/dev/null
+apply schema.sql
+apply schema.sql
+psql -q -v ON_ERROR_STOP=1 -d $DB -f tests/upgrade_check_v9.sql
+
 psql -q -d postgres -c "drop database $DB"

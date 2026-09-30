@@ -373,6 +373,26 @@ update profiles set join_seen = true where id = '00000000-0000-0000-0000-0000000
 select pg_temp.check((select join_seen from profiles where id = '00000000-0000-0000-0000-0000000000f2'), 'admin marks a join as seen');
 reset role;
 
+-- ===== Contact the management =====
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+select send_feedback('bug', 'הכפתור לא עובד') as fb_id \gset
+select pg_temp.denied($$select send_feedback('spam', 'x')$$, 'unknown request type rejected');
+select pg_temp.denied($$insert into feedback (author_id, kind, body) values (auth.uid(), 'idea', 'x')$$, 'requests only through send_feedback');
+select pg_temp.denied('select reply_feedback(' || :fb_id || ', ''x'', true)', 'members cannot answer requests');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select pg_temp.check((select count(*) = 0 from feedback), 'others cannot read a request');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+select pg_temp.check((select count(*) = 1 from feedback), 'admins read all requests');
+select reply_feedback(:fb_id, 'תוקן, תודה', true);
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+select pg_temp.check((select status = 'done' and reply = 'תוקן, תודה' from feedback where id = :fb_id), 'sender sees the answer');
+update feedback set reply = 'זויף' where id = :fb_id;
+select pg_temp.check((select reply = 'תוקן, תודה' from feedback where id = :fb_id), 'sender cannot change the answer');
+reset role;
+
 -- ===== Polls =====
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
 select create_poll('לאן יוצאים?', array['חברון', ' ', 'ירושלים', 'צפת'], false) as poll_id \gset
@@ -460,7 +480,7 @@ select reset_everything('owner-pass');
 reset role;
 select pg_temp.check((select count(*) = 0 from auth.users) and (select count(*) = 0 from profiles), 'reset removes every account');
 select pg_temp.check((select count(*) = 0 from messages) and (select count(*) = 0 from dm_conversations)
-  and (select count(*) = 0 from roster) and (select count(*) = 0 from anon_authors) and (select count(*) = 0 from polls), 'reset removes all content');
+  and (select count(*) = 0 from roster) and (select count(*) = 0 from anon_authors) and (select count(*) = 0 from polls) and (select count(*) = 0 from feedback), 'reset removes all content');
 select pg_temp.check((select count(*) = 1 and bool_and(is_main) from channels), 'reset leaves an empty main room');
 insert into auth.users (id, email) values ('00000000-0000-0000-0000-0000000000e0', 'shmuelshmuel@gmail.com');
 select pg_temp.check((select status = 'active' and role = 'admin' from profiles where id = '00000000-0000-0000-0000-0000000000e0'), 'owner signs up again after reset');

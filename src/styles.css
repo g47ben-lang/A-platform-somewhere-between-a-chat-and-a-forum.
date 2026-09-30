@@ -1027,3 +1027,17 @@ button.author:hover, .title-link:hover { text-decoration: underline; }
 .poll-add { align-self: flex-start; }
 .b-poll { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; padding: 6px 14px; border-radius: 999px; background: var(--surface); color: var(--primary); font-weight: 500; font-size: 14px; text-decoration: none; }
 .bubble .b-poll:hover { background: var(--hover); }
+
+/* Contact the management */
+.feedback-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.feedback-list > li { padding: 12px 14px; border-radius: 12px; background: var(--surface-2); display: grid; gap: 8px; }
+.feedback-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.feedback-head time { margin-inline-start: auto; }
+.feedback-body { margin: 0; white-space: pre-wrap; word-break: break-word; }
+.feedback-reply { padding: 8px 12px; border-radius: 10px; background: var(--surface); border-inline-start: 3px solid var(--primary); font-size: 14px; white-space: pre-wrap; }
+.feedback-status { font-size: 12px; font-weight: 500; padding: 0 8px; border-radius: 999px; background: var(--surface); }
+.feedback-status.done { color: var(--success, #146c2e); }
+.feedback-answer { width: 100%; box-sizing: border-box; font: inherit; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--outline); background: var(--surface); color: var(--text); resize: vertical; }
+.chip-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 8px; border: 1px solid var(--outline); background: transparent; color: var(--text-2); font: inherit; font-size: 14px; cursor: pointer; }
+.chip.on { background: var(--primary-container, #d3e3fd); border-color: transparent; color: var(--text); font-weight: 500; }

@@ -116,6 +116,10 @@ export default function Layout() {
             <Icon name="ballot" />
             <span className="nav-label">סקרים</span>
           </NavLink>
+          <NavLink to="/contact" className="nav-item">
+            <Icon name="mail" />
+            <span className="nav-label">יצירת קשר עם הניהול</span>
+          </NavLink>
           {isAdmin && pendingCount > 0 && (
             <NavLink to="/admin" className="nav-item">
               <Icon name="admin_panel_settings" />

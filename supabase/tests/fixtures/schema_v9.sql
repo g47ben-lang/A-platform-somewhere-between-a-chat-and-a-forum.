@@ -162,21 +162,6 @@ create table if not exists poll_votes (
 );
 alter table messages add column if not exists poll_id bigint references polls on delete set null;
 
--- ---------- Contact the management ----------
--- Bug reports, suggestions and other requests. The sender sees his own requests and the reply; admins see all.
-create table if not exists feedback (
-  id          bigint generated always as identity primary key,
-  author_id   uuid not null references profiles on delete cascade,
-  kind        text not null check (kind in ('bug', 'idea', 'other')),
-  body        text not null check (char_length(body) between 1 and 2000),
-  status      text not null default 'open' check (status in ('open', 'done')),
-  reply       text check (char_length(reply) <= 2000),
-  replied_by  uuid references profiles on delete set null,
-  replied_at  timestamptz,
-  created_at  timestamptz not null default now()
-);
-create index if not exists feedback_author_idx on feedback (author_id, id desc);
-
 create table if not exists channel_reads (
   user_id       uuid   not null references profiles on delete cascade,
   channel_id    bigint not null references channels on delete cascade,
@@ -792,33 +777,6 @@ begin
   update polls set closed = p_closed where id = p_poll;
 end $$;
 
-create or replace function send_feedback(p_kind text, p_body text) returns bigint
-language plpgsql security definer set search_path = public as $$
-declare
-  fid bigint;
-begin
-  if not is_active() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  if char_length(trim(coalesce(p_body, ''))) = 0 then raise exception 'יש לכתוב את הפנייה'; end if;
-  if (select count(*) from feedback where author_id = auth.uid() and created_at > now() - interval '1 hour') >= 10 then
-    raise exception 'שלחת הרבה פניות בשעה האחרונה, נסה שוב מאוחר יותר';
-  end if;
-  insert into feedback (author_id, kind, body) values (auth.uid(), p_kind, left(trim(p_body), 2000)) returning id into fid;
-  return fid;
-end $$;
-
--- Admin: answer a request and/or mark it handled.
-create or replace function reply_feedback(p_id bigint, p_reply text, p_done boolean) returns void
-language plpgsql security definer set search_path = public as $$
-begin
-  if not is_admin() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  update feedback
-     set reply = coalesce(nullif(left(trim(coalesce(p_reply, '')), 2000), ''), reply),
-         replied_by = case when nullif(trim(coalesce(p_reply, '')), '') is not null then auth.uid() else replied_by end,
-         replied_at = case when nullif(trim(coalesce(p_reply, '')), '') is not null then now() else replied_at end,
-         status = case when p_done then 'done' else 'open' end
-   where id = p_id;
-end $$;
-
 -- Admin: approve a list of emails in advance. Existing pending accounts with those emails are let in now;
 -- the rest are let in the moment they sign up. Nothing is sent to anyone.
 create or replace function add_preapproved(p_entries jsonb)
@@ -907,7 +865,7 @@ begin
   if pw is null or extensions.crypt(coalesce(p_password, ''), pw) <> pw then
     raise exception 'הסיסמה שגויה' using errcode = '42501';
   end if;
-  truncate feedback, poll_votes, poll_options, polls, dm_reactions, dm_messages, dm_participants, dm_conversations, reactions, message_likes, stars,
+  truncate poll_votes, poll_options, polls, dm_reactions, dm_messages, dm_participants, dm_conversations, reactions, message_likes, stars,
     anon_authors, wall_posts, channel_reads, messages, channels, preapproved_emails, roster restart identity cascade;
   foreach t in array array['thread_likes', 'thread_reads', 'threads'] loop
     if to_regclass('public.' || t) is not null then execute format('truncate %I cascade', t); end if;
@@ -1159,8 +1117,6 @@ revoke execute on function create_poll(text, text[], boolean, bigint), vote_poll
   set_poll_closed(bigint, boolean) from anon, public;
 grant execute on function create_poll(text, text[], boolean, bigint), vote_poll(bigint, bigint[]), poll_results(bigint),
   set_poll_closed(bigint, boolean) to authenticated;
-revoke execute on function send_feedback(text, text), reply_feedback(bigint, text, boolean) from anon, public;
-grant execute on function send_feedback(text, text), reply_feedback(bigint, text, boolean) to authenticated;
 revoke execute on function add_preapproved(jsonb) from anon, public;
 grant execute on function add_preapproved(jsonb) to authenticated;
 revoke execute on function owner_profile_id() from anon, public;
@@ -1187,7 +1143,6 @@ alter table stars            enable row level security;
 alter table preapproved_emails enable row level security;
 alter table roster           enable row level security;
 alter table polls            enable row level security;
-alter table feedback         enable row level security;
 alter table poll_options     enable row level security;
 alter table poll_votes       enable row level security;
 alter table message_likes    enable row level security;
@@ -1272,12 +1227,6 @@ drop policy if exists poll_options_select on poll_options;
 create policy poll_options_select on poll_options for select using (is_active());
 drop policy if exists poll_votes_own on poll_votes;
 create policy poll_votes_own on poll_votes for select using (user_id = auth.uid());
-
--- contact requests: the sender reads his own, admins read and delete all; written only through the functions
-drop policy if exists feedback_select on feedback;
-create policy feedback_select on feedback for select using (is_active() and (author_id = auth.uid() or is_admin()));
-drop policy if exists feedback_delete on feedback;
-create policy feedback_delete on feedback for delete using (is_admin());
 
 drop policy if exists stars_own on stars;
 create policy stars_own on stars for all using (user_id = auth.uid()) with check (user_id = auth.uid());

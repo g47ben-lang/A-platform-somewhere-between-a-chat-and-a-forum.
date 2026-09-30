@@ -13,6 +13,8 @@ emoji set in `src/lib/emoji.ts` is curated for that audience (no immodest/romant
 - Main room banner image: `public/hero.jpg` (falls back to a gradient if missing).
 - Shared chat UI: `components/ChatStream.tsx` (Google Chat style bubbles: mine on the left in blue, hover toolbar with quick reactions / emoji picker / quote-reply / ⋮ menu), `components/Composer.tsx` (mentions, emoji, photo/video attach + paste, anonymous toggle, typing pings), `lib/useTyping.ts` (broadcast, never carries a name for anonymous writers).
 - Polls: `pages/PollsPage.tsx` (/polls list, /polls/:id answer + results). `create_poll` also posts an announcement message (`messages.poll_id`, immutable) in the chosen room; ChatStream shows a button to the poll. Votes are private (`poll_votes` visible only to the voter; totals via `poll_results`).
+- Contact the management: `pages/ContactPage.tsx` (/contact) + admin tab "פניות" (`components/FeedbackAdmin.tsx`); table `feedback` written via `send_feedback` (rate-limited) and answered via `reply_feedback` (admins).
+- `docs/project-summary.md`: Hebrew summary of the site to paste into AI tools; keep it current when adding features.
 - Message actions: forward (`ForwardDialog`), mark unread (`mark_room_unread` / `mark_dm_unread`), star (`stars` table, `/starred`), pin to room board (`set_message_pinned`), copy link (`?m=<id>` deep link), copy text, edit, delete.
 - Media: private Storage bucket `media` (created by schema.sql). Chat files `m/<uuid>.<ext>`, profile photos `a/<uuid>.jpg`; names never contain the uploader (anonymity). `lib/media.ts` shrinks photos (1600px JPEG), limits video to 20MB / 90s, and serves files through batched signed URLs.
 - Realtime: postgres_changes via `subscribe()` in `src/lib/realtime.ts` (unique topic per subscription); shared topics (presence, typing) via `joinShared()`. Reusing a topic while the old channel is being removed throws and used to blank the app.
@@ -29,5 +31,5 @@ emoji set in `src/lib/emoji.ts` is curated for that audience (no immodest/romant
 
 ## Checks before pushing
 - `npm run build` (typecheck + bundle)
-- `supabase/tests/run.sh` against a local Postgres 16 (mocks Supabase `auth` schema): permission tests on a fresh install plus upgrade tests from `tests/fixtures/schema_v1.sql`, `schema_v2.sql`, `schema_v3.sql`, `schema_v4.sql`, `schema_v5.sql`, `schema_v6.sql`, `schema_v7.sql` and `schema_v8.sql`. Add a test for any policy/trigger change; when making a breaking schema change, snapshot the current schema as the next fixture.
+- `supabase/tests/run.sh` against a local Postgres 16 (mocks Supabase `auth` schema): permission tests on a fresh install plus upgrade tests from `tests/fixtures/schema_v1.sql`, `schema_v2.sql`, `schema_v3.sql`, `schema_v4.sql`, `schema_v5.sql`, `schema_v6.sql`, `schema_v7.sql`, `schema_v8.sql` and `schema_v9.sql`. Add a test for any policy/trigger change; when making a breaking schema change, snapshot the current schema as the next fixture.
 - `schema.sql` must stay idempotent (safe to re-run on the live project).
