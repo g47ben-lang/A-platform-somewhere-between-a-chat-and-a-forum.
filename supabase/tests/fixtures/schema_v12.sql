@@ -175,48 +175,6 @@ select 'מזל טוב וברכות', 'ברכות לשמחות: אירוסין, �
        coalesce((select max(position) + 1 from channels), 0)
  where not exists (select 1 from channels where purpose = 'blessings');
 
--- ---------- פינת החבר'ה: anonymous confessions & "who said it?" ----------
--- Confessions ("אף פעם לא…") are always anonymous: the author sits in anon_authors (kind 'confession').
-create table if not exists confessions (
-  id          bigint generated always as identity primary key,
-  body        text not null check (char_length(body) between 3 and 500),
-  created_at  timestamptz not null default now()
-);
-create table if not exists confession_reactions (
-  confession_id  bigint not null references confessions on delete cascade,
-  user_id        uuid   not null references profiles on delete cascade,
-  emoji          text   not null check (emoji in ('😂', '😱', '🙈', '👏', '🤯', '🫡')),
-  primary key (confession_id, user_id, emoji)
-);
-create table if not exists confession_comments (
-  id             bigint generated always as identity primary key,
-  confession_id  bigint not null references confessions on delete cascade,
-  author_id      uuid   not null references profiles on delete cascade,
-  body           text   not null check (char_length(body) between 1 and 300),
-  created_at     timestamptz not null default now()
-);
-
--- "Who said it?": a member grabs a chat line; others guess its author among 4 names for points.
--- The answer is readable only through the functions below (after guessing, or when the quiz closes).
-create table if not exists quote_quizzes (
-  id          bigint generated always as identity primary key,
-  message_id  bigint unique references messages on delete set null,
-  quote       text not null,
-  author_id   uuid not null references profiles on delete cascade,
-  grabbed_by  uuid references profiles on delete set null,
-  options     uuid[] not null,
-  created_at  timestamptz not null default now(),
-  closes_at   timestamptz not null default now() + interval '3 days'
-);
-create table if not exists quiz_guesses (
-  quiz_id     bigint not null references quote_quizzes on delete cascade,
-  user_id     uuid   not null references profiles on delete cascade,
-  guess       uuid   not null,
-  correct     boolean not null,
-  created_at  timestamptz not null default now(),
-  primary key (quiz_id, user_id)
-);
-
 -- ---------- Events calendar ----------
 -- Anyone adds yeshiva events. A new event that duplicates or contradicts an existing one (same name on another
 -- date, or a similar name on the same date) is saved as 'conflict': the original's author may accept the new
@@ -365,14 +323,11 @@ create table if not exists stars (
 
 -- ---------- Anonymous authorship (private) ----------
 create table if not exists anon_authors (
-  kind       text   not null,
+  kind       text   not null check (kind in ('thread', 'message', 'wall')),
   item_id    bigint not null,
   author_id  uuid   not null references profiles on delete cascade,
   primary key (kind, item_id)
 );
-
-alter table anon_authors drop constraint if exists anon_authors_kind_check;
-alter table anon_authors add constraint anon_authors_kind_check check (kind in ('thread', 'message', 'wall', 'confession'));
 
 -- Likes: a plain "like" on a room message, separate from emoji reactions, that builds the author's reputation.
 -- First install of this table (upgrade from v4): earlier 👍 reactions from other members become likes.
@@ -1229,112 +1184,6 @@ language sql stable security definer set search_path = public as $$
     where attachment is null and char_length(body) between 8 and 300 and sc >= 3 order by sc desc, id desc limit 1);
 $$;
 
--- ---------- פינת החבר'ה: actions ----------
-create or replace function post_confession(p_body text) returns bigint
-language plpgsql security definer set search_path = public as $$
-declare
-  cid bigint;
-begin
-  if not can_send_anon() then raise exception 'אין לך הרשאה לפרסם בעילום שם' using errcode = '42501'; end if;
-  if char_length(trim(coalesce(p_body, ''))) < 3 then raise exception 'הווידוי קצר מדי'; end if;
-  if (select count(*) from anon_authors a join confessions c on c.id = a.item_id
-       where a.kind = 'confession' and a.author_id = auth.uid() and c.created_at > now() - interval '1 day') >= 5 then
-    raise exception 'אפשר לפרסם עד 5 וידויים ביום';
-  end if;
-  insert into confessions (body) values (left(trim(p_body), 500)) returning id into cid;
-  insert into anon_authors (kind, item_id, author_id) values ('confession', cid, auth.uid());
-  return cid;
-end $$;
-
-create or replace function delete_confession(p_id bigint) returns void
-language plpgsql security definer set search_path = public as $$
-begin
-  if not (is_active() and (owns_anon('confession', p_id) or can_remove_content())) then
-    raise exception 'אין הרשאה' using errcode = '42501';
-  end if;
-  delete from confessions where id = p_id;
-  delete from anon_authors where kind = 'confession' and item_id = p_id;
-end $$;
-
-create or replace function grab_quote(p_message bigint) returns bigint
-language plpgsql security definer set search_path = public as $$
-declare
-  m messages;
-  opts uuid[];
-  qid bigint;
-begin
-  if not is_active() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  select * into m from messages where id = p_message;
-  if not found or m.deleted or m.anonymous or m.system or m.author_id is null or char_length(m.body) < 5 then
-    raise exception 'אי אפשר להעביר את ההודעה הזו';
-  end if;
-  if m.author_id = auth.uid() then raise exception 'אי אפשר להעביר הודעה שלך'; end if;
-  if exists (select 1 from quote_quizzes where message_id = p_message) then raise exception 'ההודעה הזו כבר ב"מי אמר את זה?"'; end if;
-  select array_agg(x order by random()) into opts from (
-    select m.author_id as x
-    union all
-    (select p.id from profiles p where p.status = 'active' and p.id <> m.author_id and p.id <> auth.uid() order by random() limit 3)
-  ) o;
-  if cardinality(opts) < 3 then raise exception 'צריך עוד חברים פעילים כדי לשחק'; end if;
-  insert into quote_quizzes (message_id, quote, author_id, grabbed_by, options)
-  values (p_message, left(m.body, 400), m.author_id, auth.uid(), opts) returning id into qid;
-  return qid;
-end $$;
-
-create or replace function guess_quote(p_quiz bigint, p_guess uuid) returns boolean
-language plpgsql security definer set search_path = public as $$
-declare
-  q quote_quizzes;
-  ok boolean;
-begin
-  select * into q from quote_quizzes where id = p_quiz;
-  if not found or not is_active() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  if q.closes_at < now() then raise exception 'המשחק על הציטוט הזה נסגר'; end if;
-  if auth.uid() in (q.author_id, q.grabbed_by) then raise exception 'אתה כבר יודע את התשובה'; end if;
-  if not p_guess = any(q.options) then raise exception 'ניחוש לא תקין'; end if;
-  ok := p_guess = q.author_id;
-  insert into quiz_guesses (quiz_id, user_id, guess, correct) values (p_quiz, auth.uid(), p_guess, ok);
-  return ok;
-end $$;
-
--- Quizzes, newest first. The answer shows once I guessed, if I know it, or when the quiz is closed.
-create or replace function quiz_list()
-returns table (id bigint, quote text, options uuid[], grabbed_by uuid, created_at timestamptz, closes_at timestamptz,
-               guesses int, correct_count int, my_guess uuid, answer uuid)
-language sql stable security definer set search_path = public as $$
-  select q.id, q.quote, q.options, q.grabbed_by, q.created_at, q.closes_at,
-         (select count(*)::int from quiz_guesses g where g.quiz_id = q.id),
-         (select count(*)::int from quiz_guesses g where g.quiz_id = q.id and g.correct),
-         (select g.guess from quiz_guesses g where g.quiz_id = q.id and g.user_id = auth.uid()),
-         case when q.closes_at < now() or auth.uid() in (q.author_id, q.grabbed_by)
-                or exists (select 1 from quiz_guesses g where g.quiz_id = q.id and g.user_id = auth.uid())
-              then q.author_id end
-    from quote_quizzes q
-   where is_active()
-   order by q.created_at desc
-   limit 100;
-$$;
-
--- Points: 10 per correct guess.
-create or replace function quiz_leaderboard()
-returns table (user_id uuid, points int, correct int)
-language sql stable security definer set search_path = public as $$
-  select g.user_id, count(*)::int * 10, count(*)::int
-    from quiz_guesses g join profiles p on p.id = g.user_id
-   where g.correct and p.status = 'active' and is_active()
-   group by g.user_id order by 2 desc limit 10;
-$$;
-
-create or replace function delete_quiz(p_id bigint) returns void
-language plpgsql security definer set search_path = public as $$
-begin
-  if not exists (select 1 from quote_quizzes where id = p_id and is_active()
-                 and (grabbed_by = auth.uid() or author_id = auth.uid() or can_remove_content())) then
-    raise exception 'אין הרשאה' using errcode = '42501';
-  end if;
-  delete from quote_quizzes where id = p_id;
-end $$;
-
 -- ---------- Events calendar: actions ----------
 create or replace function norm_title(t text) returns text
 language sql immutable as $$ select lower(regexp_replace(trim(coalesce(t, '')), '\s+', ' ', 'g')) $$;
@@ -1738,7 +1587,7 @@ begin
   if pw is null or extensions.crypt(coalesce(p_password, ''), pw) <> pw then
     raise exception 'הסיסמה שגויה' using errcode = '42501';
   end if;
-  truncate quiz_guesses, quote_quizzes, confession_comments, confession_reactions, confessions, events, email_queue, email_prefs, nickname_votes, nicknames, birthday_posts, birthdays, feedback, poll_votes, poll_options, polls, dm_reactions, dm_messages, dm_participants, dm_conversations, reactions, message_likes, stars,
+  truncate events, email_queue, email_prefs, nickname_votes, nicknames, birthday_posts, birthdays, feedback, poll_votes, poll_options, polls, dm_reactions, dm_messages, dm_participants, dm_conversations, reactions, message_likes, stars,
     anon_authors, wall_posts, channel_reads, messages, channels, preapproved_emails, roster restart identity cascade;
   foreach t in array array['thread_likes', 'thread_reads', 'threads'] loop
     if to_regclass('public.' || t) is not null then execute format('truncate %I cascade', t); end if;
@@ -2011,10 +1860,6 @@ revoke execute on function my_reputation(), send_gag(bigint, jsonb, text), weekl
 grant execute on function my_reputation(), send_gag(bigint, jsonb, text), weekly_highlights(),
   add_event(text, date, date, text, text, bigint), update_event(bigint, text, date, date, text, text), delete_event(bigint),
   resolve_event(bigint, text) to authenticated;
-revoke execute on function post_confession(text), delete_confession(bigint), grab_quote(bigint), guess_quote(bigint, uuid),
-  quiz_list(), quiz_leaderboard(), delete_quiz(bigint) from anon, public;
-grant execute on function post_confession(text), delete_confession(bigint), grab_quote(bigint), guess_quote(bigint, uuid),
-  quiz_list(), quiz_leaderboard(), delete_quiz(bigint) to authenticated;
 revoke execute on function add_preapproved(jsonb) from anon, public;
 grant execute on function add_preapproved(jsonb) to authenticated;
 revoke execute on function owner_profile_id() from anon, public;
@@ -2049,11 +1894,6 @@ alter table nickname_votes   enable row level security;  -- no policies: functio
 alter table email_prefs      enable row level security;
 alter table email_queue      enable row level security;  -- no policies: triggers and the email job only
 alter table events           enable row level security;
-alter table confessions      enable row level security;
-alter table confession_reactions enable row level security;
-alter table confession_comments  enable row level security;
-alter table quote_quizzes    enable row level security;  -- no policies: functions only (hides the answer)
-alter table quiz_guesses     enable row level security;  -- no policies: functions only
 alter table poll_options     enable row level security;
 alter table poll_votes       enable row level security;
 alter table message_likes    enable row level security;
@@ -2150,22 +1990,6 @@ drop policy if exists birthdays_own on birthdays;
 create policy birthdays_own on birthdays for all using (user_id = auth.uid() and is_active()) with check (user_id = auth.uid() and is_active());
 drop policy if exists email_prefs_own on email_prefs;
 create policy email_prefs_own on email_prefs for all using (user_id = auth.uid()) with check (user_id = auth.uid());
-
--- confessions: read by members; posted and deleted through the functions above
-drop policy if exists confessions_select on confessions;
-create policy confessions_select on confessions for select using (is_active());
-drop policy if exists confession_reactions_select on confession_reactions;
-create policy confession_reactions_select on confession_reactions for select using (is_active());
-drop policy if exists confession_reactions_insert on confession_reactions;
-create policy confession_reactions_insert on confession_reactions for insert with check (is_active() and user_id = auth.uid());
-drop policy if exists confession_reactions_delete on confession_reactions;
-create policy confession_reactions_delete on confession_reactions for delete using (user_id = auth.uid());
-drop policy if exists confession_comments_select on confession_comments;
-create policy confession_comments_select on confession_comments for select using (is_active());
-drop policy if exists confession_comments_insert on confession_comments;
-create policy confession_comments_insert on confession_comments for insert with check (is_active() and author_id = auth.uid());
-drop policy if exists confession_comments_delete on confession_comments;
-create policy confession_comments_delete on confession_comments for delete using (author_id = auth.uid() or can_remove_content());
 
 -- events: members read the calendar; all writes go through the functions above
 drop policy if exists events_select on events;

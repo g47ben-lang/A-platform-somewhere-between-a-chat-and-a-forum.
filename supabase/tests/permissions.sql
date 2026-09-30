@@ -555,6 +555,37 @@ select resolve_event(:ev3, 'keep_both');
 select pg_temp.check((select status = 'approved' from events where id = :ev3), 'admin decides a clash');
 reset role;
 
+-- ===== Confessions & "who said it?" =====
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+select post_confession('אף פעם לא הגעתי בזמן לשחרית') as conf_id \gset
+select pg_temp.check((select count(*) = 1 from anon_authors where kind = 'confession'), 'author knows his confession');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select pg_temp.denied($$select post_confession('אף פעם לא')$$, 'confessions follow the anonymous-sending permission');
+select pg_temp.check((select count(*) = 1 from confessions) and (select count(*) = 0 from anon_authors where kind = 'confession'), 'confession visible, author hidden');
+insert into confession_reactions (confession_id, user_id, emoji) values (:conf_id, auth.uid(), '😂');
+select pg_temp.denied('insert into confession_reactions (confession_id, user_id, emoji) values (' || :conf_id || ', auth.uid(), ''🍺'')', 'only the fixed reactions');
+insert into confession_comments (confession_id, author_id, body) values (:conf_id, auth.uid(), 'גם אני');
+select pg_temp.denied('select delete_confession(' || :conf_id || ')', 'others cannot delete a confession');
+select pg_temp.denied($$select grab_quote((select id from messages where author_id = auth.uid() and not deleted and char_length(body) >= 5 limit 1))$$, 'cannot grab your own line');
+select pg_temp.denied($$select grab_quote((select id from messages where anonymous limit 1))$$, 'anonymous lines are never grabbed');
+select grab_quote((select id from messages where author_id = '00000000-0000-0000-0000-00000000000b' and not deleted and not anonymous and char_length(body) >= 5 order by id limit 1)) as quiz_id \gset
+select pg_temp.check((select answer is not null from quiz_list() where id = :quiz_id), 'the grabber knows the answer');
+select pg_temp.denied('select guess_quote(' || :quiz_id || ', ''' || '00000000-0000-0000-0000-00000000000b' || ''')', 'the grabber cannot guess');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+select pg_temp.check((select count(*) = 0 from quote_quizzes), 'quiz table not readable directly');
+select pg_temp.check((select answer is null and cardinality(options) = 4 and quote <> '' from quiz_list() where id = :quiz_id), 'quiz hides the answer from players');
+select pg_temp.check((select guess_quote(:quiz_id, '00000000-0000-0000-0000-00000000000b')), 'correct guess');
+select pg_temp.check((select answer = '00000000-0000-0000-0000-00000000000b' from quiz_list() where id = :quiz_id), 'answer revealed after guessing');
+select pg_temp.denied('select guess_quote(' || :quiz_id || ', ''' || '00000000-0000-0000-0000-00000000000b' || ''')', 'one guess per quiz');
+select pg_temp.check((select points = 10 from quiz_leaderboard() where user_id = auth.uid()), 'points for a correct guess');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+select delete_confession(:conf_id);
+select pg_temp.check((select count(*) = 0 from confessions), 'author deletes his confession');
+reset role;
+
 -- ===== Owner (super admin) and inspector =====
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
 select send_dm(start_dm('00000000-0000-0000-0000-0000000000f2', false), 'סוד בין שניים');
@@ -613,7 +644,7 @@ reset role;
 select pg_temp.check((select count(*) = 0 from auth.users) and (select count(*) = 0 from profiles), 'reset removes every account');
 select pg_temp.check((select count(*) = 0 from messages) and (select count(*) = 0 from dm_conversations)
   and (select count(*) = 0 from roster) and (select count(*) = 0 from anon_authors) and (select count(*) = 0 from polls) and (select count(*) = 0 from feedback) and (select count(*) = 0 from nicknames) and (select count(*) = 0 from email_queue), 'reset removes all content');
-select pg_temp.check((select count(*) = 2 and count(*) filter (where is_main) = 1 and count(*) filter (where purpose = 'blessings') = 1 from channels) and (select count(*) = 0 from events), 'reset leaves an empty main room and the blessings room');
+select pg_temp.check((select count(*) = 2 and count(*) filter (where is_main) = 1 and count(*) filter (where purpose = 'blessings') = 1 from channels) and (select count(*) = 0 from events) and (select count(*) = 0 from quote_quizzes), 'reset leaves an empty main room and the blessings room');
 insert into auth.users (id, email) values ('00000000-0000-0000-0000-0000000000e0', 'shmuelshmuel@gmail.com');
 select pg_temp.check((select status = 'active' and role = 'admin' from profiles where id = '00000000-0000-0000-0000-0000000000e0'), 'owner signs up again after reset');
 

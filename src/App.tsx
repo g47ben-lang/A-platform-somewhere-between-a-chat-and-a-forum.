@@ -16,6 +16,7 @@ import StarredPage from './pages/StarredPage';
 import PollsPage from './pages/PollsPage';
 import ContactPage from './pages/ContactPage';
 import EventsPage from './pages/EventsPage';
+import FunPage from './pages/FunPage';
 import TermsGate from './pages/TermsGate';
 
 export default function App() {
@@ -75,6 +76,7 @@ export default function App() {
         <Route path="polls/:pollId" element={<PollsPage />} />
         <Route path="contact" element={<ContactPage />} />
         <Route path="events" element={<EventsPage />} />
+        <Route path="fun" element={<FunPage />} />
         <Route path="search" element={<SearchPage />} />
         <Route path="admin" element={isAdmin ? <AdminPage /> : <Navigate to="/" />} />
         {/* links from earlier versions */}

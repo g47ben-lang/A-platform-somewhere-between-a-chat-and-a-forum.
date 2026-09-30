@@ -112,4 +112,12 @@ apply schema.sql
 apply schema.sql
 psql -q -v ON_ERROR_STOP=1 -d $DB -f tests/upgrade_check_v11.sql
 
+echo "== upgrade from v12 =="
+fresh_db
+apply tests/fixtures/schema_v12.sql
+psql -q -v ON_ERROR_STOP=1 -d $DB -f tests/upgrade_v12.sql >/dev/null
+apply schema.sql
+apply schema.sql
+psql -q -v ON_ERROR_STOP=1 -d $DB -f tests/upgrade_check_v12.sql
+
 psql -q -d postgres -c "drop database $DB"

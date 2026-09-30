@@ -252,6 +252,12 @@ export default function RoomPage() {
     loadExtras(older);
   }
 
+  async function grabQuote(m: Message) {
+    const { error } = await supabase.rpc('grab_quote', { p_message: m.id });
+    if (error) return toast(errorText(error), 'error');
+    toast('הציטוט הועבר ל"מי אמר את זה?" בפינת החבר\'ה');
+  }
+
   async function send(text: string, opts: SendOptions) {
     if (!roomId) return false;
     if (editing) {
@@ -392,6 +398,8 @@ export default function RoomPage() {
     a.push({ icon: 'mark_chat_unread', label: 'סימון שההודעה לא נקראה', onClick: () => markUnread(m.id), divider: true });
     a.push({ icon: 'star', label: item.starred ? 'הסרת הכוכב' : 'סימון בכוכב', onClick: () => toggleStar(m.id) });
     if (!room?.admin_only_post || isMod) a.push({ icon: 'keep', label: m.pinned_at ? 'הסרה מהלוח' : 'הצמדה ללוח', onClick: () => togglePin(m) });
+    if (!item.mine && !m.anonymous && !m.system && m.author_id && m.body.trim().length >= 5)
+      a.push({ icon: 'format_quote', label: 'העברה ל"מי אמר את זה?"', onClick: () => grabQuote(m) });
     a.push({ icon: 'link', label: 'העתקת הקישור להודעה', onClick: () => copy(messageLink(room!.is_main ? '/' : `/room/${roomId}`, m.id), 'הקישור הועתק') });
     if (m.body) a.push({ icon: 'content_copy', label: 'העתקת הטקסט', onClick: () => copy(m.body, 'הטקסט הועתק') });
     if (item.mine && m.body) a.push({ icon: 'edit', label: 'עריכה', onClick: () => { setReplyTo(null); setEditing(m); composer.current?.setText(m.body); }, divider: true });
