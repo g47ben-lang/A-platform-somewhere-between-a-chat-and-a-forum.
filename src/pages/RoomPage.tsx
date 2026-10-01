@@ -17,6 +17,7 @@ import Icon from '../components/Icon';
 import { useProfileCard } from '../components/ProfileCard';
 import RoomDialog from '../components/RoomDialog';
 import Highlights from '../components/Highlights';
+import { FlashStrip } from '../components/FlashCard';
 import GagMaker from '../components/GagMaker';
 import { muteUntilLabel, ReportDialog, ScheduleDialog } from '../components/Moderation';
 import { nextCountdown } from '../lib/zmanim';
@@ -234,6 +235,7 @@ export default function RoomPage() {
         anonymous: m.anonymous,
         mine: m.author_id === me?.id || mineAnon.has(m.id),
         pollId: m.poll_id,
+        flash: m.flash ?? null,
         eventLabel: msgEvents.get(m.id) ?? null,
         system: m.system,
         revealedAuthor: isOwner && m.anonymous && anonAuthor.has(m.id) ? nameOf(anonAuthor.get(m.id)) : null,
@@ -424,7 +426,7 @@ export default function RoomPage() {
     if (!item.mine && !m.system) a.push({ icon: 'error', label: 'דיווח על ההודעה', onClick: () => setReportId(m.id) });
     a.push({ icon: 'link', label: 'העתקת הקישור להודעה', onClick: () => copy(messageLink(room!.is_main ? '/' : `/room/${roomId}`, m.id), 'הקישור הועתק') });
     if (m.body) a.push({ icon: 'content_copy', label: 'העתקת הטקסט', onClick: () => copy(m.body, 'הטקסט הועתק') });
-    if (item.mine && m.body) a.push({ icon: 'edit', label: 'עריכה', onClick: () => { setReplyTo(null); setEditing(m); composer.current?.setText(m.body); }, divider: true });
+    if (item.mine && m.body && !m.flash) a.push({ icon: 'edit', label: 'עריכה', onClick: () => { setReplyTo(null); setEditing(m); composer.current?.setText(m.body); }, divider: true });
     if (item.mine || canRemove) a.push({ icon: 'delete', label: 'מחיקה', onClick: () => remove(m.id), danger: true, divider: !(item.mine && m.body) });
     return a;
   }
@@ -529,6 +531,7 @@ export default function RoomPage() {
             </button>
             </div>
             {!heroCollapsed && <Highlights />}
+            {!heroCollapsed && <FlashStrip />}
           </header>
         ) : (
           <header className="pane-head">

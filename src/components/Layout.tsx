@@ -9,6 +9,7 @@ import NewChatDialog from './NewChatDialog';
 import RoomDialog from './RoomDialog';
 import { useMoreNews } from '../lib/useMoreNews';
 import { MutedNotice } from './Moderation';
+import { BOT_NAME } from '../pages/BotPage';
 
 export function useConversationTitle() {
   const { nameOf } = useApp();
@@ -166,6 +167,10 @@ export default function Layout() {
           <NavLink to="/polls" className="nav-item">
             <Icon name="ballot" />
             <span className="nav-label">סקרים</span>
+          </NavLink>
+          <NavLink to="/bot" className="nav-item">
+            <Icon name="mood" />
+            <span className="nav-label">{BOT_NAME}</span>
           </NavLink>
           <NavLink to="/contact" className="nav-item">
             <Icon name="mail" />

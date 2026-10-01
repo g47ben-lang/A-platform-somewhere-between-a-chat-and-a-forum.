@@ -4,7 +4,8 @@ import { useApp } from '../AppContext';
 import { clockTime, dayLabel, fullDate, roleTag } from '../lib/format';
 import { quickReactions, rememberEmoji } from '../lib/emoji';
 import { useSignedUrl } from '../lib/media';
-import type { Attachment } from '../types';
+import type { Attachment, FlashData } from '../types';
+import FlashCard from './FlashCard';
 import Avatar from './Avatar';
 import EmojiPicker from './EmojiPicker';
 import Icon, { type IconName } from './Icon';
@@ -39,6 +40,8 @@ export interface StreamItem {
   eventLabel?: string | null;
   /** Announcement of a poll: shows a button to its page. */
   pollId?: number | null;
+  /** A news flash posted as text: drawn as a card instead of the plain body. */
+  flash?: FlashData | null;
   /** Owner only: the real author of an anonymous message. */
   revealedAuthor?: string | null;
   /** Reputation likes (rooms only). */
@@ -336,7 +339,9 @@ function Bubble({
             ) : (
               <>
                 {m.attachment && <Media att={m.attachment} onOpenImage={onOpenImage} onLoad={onMediaLoad} />}
-                {m.body && (
+                {m.flash ? (
+                  <FlashCard f={m.flash} at={m.createdAt} />
+                ) : m.body && (
                   <div className="b-text">
                     <RichText text={m.body} names={names} myName={me?.display_name} />
                   </div>

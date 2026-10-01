@@ -64,6 +64,16 @@ export interface Message {
   poll_id: number | null;
   /** Automatic message (birthday greetings): no author. */
   system: boolean;
+  /** A news flash posted as text (send_flash). */
+  flash?: FlashData | null;
+}
+
+/** A news flash (מבזק) drawn as text by FlashCard. */
+export interface FlashData {
+  t: 'flash' | 'quote' | 'notice' | 'qa';
+  title: string;
+  text: string;
+  sign?: string;
 }
 
 export interface Poll {

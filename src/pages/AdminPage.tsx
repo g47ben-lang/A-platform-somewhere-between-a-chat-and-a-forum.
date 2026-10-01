@@ -16,8 +16,9 @@ import OwnerTools from '../components/OwnerTools';
 import FeedbackAdmin from '../components/FeedbackAdmin';
 import AdminStats from '../components/AdminStats';
 import GuestViewAdmin from '../components/GuestViewAdmin';
+import AiKeysAdmin from '../components/AiKeysAdmin';
 
-type Tab = 'members' | 'preapproved' | 'anonymous' | 'rooms' | 'media' | 'owner' | 'feedback' | 'stats' | 'guest';
+type Tab = 'members' | 'preapproved' | 'anonymous' | 'rooms' | 'media' | 'owner' | 'feedback' | 'stats' | 'guest' | 'ai';
 type ProfilePatch = Partial<Pick<Profile, 'status' | 'role' | 'accept_anonymous' | 'can_send_anonymous' | 'join_seen'>>;
 
 export default function AdminPage() {
@@ -118,6 +119,11 @@ export default function AdminPage() {
           <button className={tab === 'preapproved' ? 'on' : ''} onClick={() => setTab('preapproved')} role="tab">
             <Icon name="check" size={20} /> אישור מראש
           </button>
+          {isOwner && (
+            <button className={tab === 'ai' ? 'on' : ''} onClick={() => setTab('ai')} role="tab">
+              <Icon name="mood" size={20} /> בוט AI
+            </button>
+          )}
           {isOwner && (
             <button className={tab === 'guest' ? 'on' : ''} onClick={() => setTab('guest')} role="tab">
               <Icon name="visibility" size={20} /> צפייה ללא התחברות
@@ -305,6 +311,7 @@ export default function AdminPage() {
 
         {tab === 'stats' && <AdminStats />}
         {tab === 'guest' && isOwner && <GuestViewAdmin />}
+        {tab === 'ai' && isOwner && <AiKeysAdmin />}
 
         {tab === 'preapproved' && (
           <>

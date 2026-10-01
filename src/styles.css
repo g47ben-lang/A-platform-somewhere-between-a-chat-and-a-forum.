@@ -1304,3 +1304,53 @@ button.author:hover, .title-link:hover { text-decoration: underline; }
 }
 .guest-status { display: flex; align-items: center; gap: 10px; padding: 12px 16px; margin: 12px 0; border-radius: 12px; background: var(--surface-3); }
 .guest-status.on { background: var(--primary-container); color: var(--on-primary-container); }
+
+/* =====================================================================
+   AI bot ("בוט הנייעס")
+   ===================================================================== */
+.bot-avatar { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: var(--primary-container); color: var(--on-primary-container); flex-shrink: 0; }
+.bot-avatar.large { width: 72px; height: 72px; }
+.bot-notice { align-items: flex-start; font-size: 12px; }
+.bot-notice .icon { flex-shrink: 0; margin-top: 2px; }
+.bot-stream .b-row.theirs { padding-inline-start: 16px; }
+.bubble.relay { border: 1px solid var(--primary); }
+.claim-actions { margin-top: 8px; flex-wrap: wrap; }
+.ai-keys .key-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.ai-usage { height: 6px; border-radius: 3px; background: var(--surface-3); overflow: hidden; margin-top: 4px; }
+.ai-usage > span { display: block; height: 100%; background: var(--primary); }
+.ai-key-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; align-items: end; }
+
+/* =====================================================================
+   News flash as text (FlashCard) + the "all flashes" strip in the banner
+   ===================================================================== */
+.flash-card { background: #fff; color: #1f1f1f; border-radius: 12px; border: 1px solid #e1e3e1; overflow: hidden; width: min(340px, 100%); font-family: Heebo, Arial, sans-serif; display: flex; flex-direction: column; }
+.flash-card > * { padding-inline: 16px; }
+.fc-band { background: #b3261e; color: #fff; font-weight: 800; font-size: 26px; padding-block: 8px; }
+.fc-head { color: #0b57d0; font-weight: 800; font-size: 18px; padding-top: 12px; }
+.flash-card.t-quote, .flash-card.t-qa { border-top: 4px solid #0b57d0; }
+.fc-question { font-weight: 600; font-size: 15px; padding-top: 4px; }
+.fc-notice-title { font-weight: 800; font-size: 20px; text-align: center; padding-top: 14px; }
+.flash-card.t-notice { background: #fbf8f1; outline: 2px solid #1f1f1f; outline-offset: -6px; padding: 6px; }
+.flash-card.t-notice .fc-text { text-align: center; }
+.fc-text { font-size: 16px; line-height: 1.5; padding-block: 10px; white-space: pre-wrap; word-break: break-word; }
+.flash-card.t-quote .fc-text { font-weight: 700; font-size: 18px; }
+.fc-mark { color: #a8c7fa; font-size: 44px; line-height: 0; vertical-align: -14px; margin-inline-end: 4px; font-weight: 800; }
+.fc-sign { color: #444746; font-weight: 600; font-size: 14px; padding-bottom: 8px; }
+.fc-foot { display: flex; justify-content: space-between; color: #747775; font-size: 11px; padding-block: 6px 10px; border-top: 1px solid #f0f0f0; }
+.flash-card.compact { width: 100%; height: 100%; }
+.flash-card.compact .fc-band { font-size: 18px; padding-block: 6px; }
+.flash-card.compact .fc-text { font-size: 14px; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; }
+.gag-preview-card { display: flex; justify-content: center; }
+.gag-preview-card .flash-card { width: 100%; max-width: 420px; }
+
+.flash-strip { margin-top: 10px; }
+.flash-strip-head { display: flex; align-items: center; justify-content: space-between; }
+.room-hero .flash-strip .hl-label { color: #fff; }
+.flash-track { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; padding: 6px 2px 8px; scrollbar-width: none; }
+.flash-track::-webkit-scrollbar { display: none; }
+.flash-slide { flex: 0 0 220px; scroll-snap-align: start; display: flex; flex-direction: column; gap: 4px; text-decoration: none !important; color: inherit; }
+.flash-slide .flash-card { flex: 1; transition: transform 0.15s, box-shadow 0.15s; }
+.flash-slide:hover .flash-card { transform: translateY(-2px); box-shadow: var(--shadow-1); }
+.flash-meta { font-size: 11px; opacity: 0.85; display: inline-flex; align-items: center; gap: 3px; }
+.room-hero .flash-meta { color: #fff; }
+.guest-highlights .flash-strip { padding: 0 16px 8px; }

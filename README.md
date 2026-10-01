@@ -147,3 +147,8 @@ PGHOST=localhost PGUSER=postgres supabase/tests/run.sh
 8. **הפעלה כל 5 דקות:** מריצים ב-SQL Editor את `supabase/email-setup.sql`. אותה הרצה מפרסמת גם את ברכות יום ההולדת כל בוקר.
 
 **בדיקה:** פותחים בדפדפן את `https://aircrgkljjnomoemnetq.supabase.co/functions/v1/send-emails`, ואמורה להופיע תשובה קצרה עם `sent`. כל חבר בוחר בהגדרות ← "התראות במייל" על מה לקבל מייל ומתי.
+
+### בוט הנייעס (AI, חינם דרך Google AI Studio)
+1. **פונקציה:** ב-Edge Functions ← Deploy a new function ← Via Editor, נותנים שם `bot`, מדביקים את כל התוכן של `supabase/functions/bot/index.ts` ולוחצים Deploy. **משאירים את Verify JWT דלוק** (רק חברים מחוברים יכולים לפנות לבוט).
+2. **מפתחות:** נכנסים ל-aistudio.google.com/apikey ← Create API key. מתחברים לאתר כמנהל-על ← ניהול הקהילה ← "בוט AI" ← מדביקים את המפתח. אפשר להוסיף כמה מפתחות, ולכל אחד מגבלה ליום ולדקה. הבוט בוחר את הכי פחות מנוצל, ומפתח שקיבל עומס נח דקה.
+3. **בדיקה:** בסרגל הצד ← "בוט הנייעס" ← כותבים "מה הנייעס?".

@@ -10,6 +10,7 @@ import ChatStream, { type StreamItem } from '../components/ChatStream';
 import { SpaceTile } from '../components/Avatar';
 import Icon from '../components/Icon';
 import Highlights from '../components/Highlights';
+import { FlashStrip } from '../components/FlashCard';
 import PollsPage from './PollsPage';
 import FunPage from './FunPage';
 import EventsPage from './EventsPage';
@@ -148,6 +149,7 @@ function GuestChat({ onLogin }: { onLogin: () => void }) {
         mine: false,
         system: m.system,
         pollId: m.poll_id,
+        flash: m.flash ?? null,
         createdAt: m.created_at,
         editedAt: m.edited_at,
         deleted: m.deleted,
@@ -187,7 +189,7 @@ function GuestChat({ onLogin }: { onLogin: () => void }) {
             </div>
           </header>
         )}
-        {room?.is_main && <div className="guest-highlights"><Highlights /></div>}
+        {room?.is_main && <div className="guest-highlights"><Highlights /><FlashStrip /></div>}
         <ChatStream
           items={rooms.length ? items : []}
           hasOlder={hasOlder}

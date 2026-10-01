@@ -168,6 +168,9 @@ create table if not exists poll_votes (
 alter table messages add column if not exists poll_id bigint references polls on delete set null;
 alter table messages add column if not exists system boolean not null default false;  -- automatic (birthdays); no author
 alter table messages add column if not exists gag boolean not null default false;     -- made with the news-flash maker
+-- A news flash posted as text (not an image, so filters like NetFree don't hold it for review):
+-- {"t": "flash"|"quote"|"notice"|"qa", "title": ..., "text": ..., "sign": ...}. Set only by send_flash().
+alter table messages add column if not exists flash jsonb;
 
 -- Special-purpose rooms created by this file (e.g. 'blessings': מזל טוב וברכות).
 alter table channels add column if not exists purpose text;
@@ -963,6 +966,7 @@ begin
   new.poll_id    := old.poll_id;
   new.system     := old.system;
   new.gag        := old.gag;
+  new.flash      := old.flash;
   -- pins change only through set_message_pinned()
   if coalesce(current_setting('app.pinning', true), '') <> '1' and auth.uid() is not null then
     new.pinned_at := old.pinned_at;
@@ -972,11 +976,15 @@ begin
     new.deleted := true;
     new.body := '';
     new.attachment := null;
+    new.flash := null;
   elsif new.deleted then
     new.body := '';
     new.attachment := null;
+    new.flash := null;
     new.pinned_at := null;
     new.pinned_by := null;
+  elsif old.flash is not null then
+    new.body := old.body;  -- a news flash is not edited (its card is the flash column)
   elsif new.body is distinct from old.body then
     if auth.uid() is not null
        and not (coalesce(old.author_id = auth.uid(), false) or owns_anon('message', old.id)) then
@@ -1360,6 +1368,45 @@ begin
   returning * into m;
   return m;
 end $$;
+
+-- A news flash as text: same rules as send_gag(), but no image (filters don't hold it for review).
+create or replace function send_flash(p_channel bigint, p_template text, p_title text, p_text text, p_sign text default '')
+returns messages
+language plpgsql security definer set search_path = public as $$
+declare
+  ch channels;
+  m messages;
+  t text := coalesce(nullif(trim(p_title), ''), 'מבזק');
+  x text := trim(coalesce(p_text, ''));
+  g text := trim(coalesce(p_sign, ''));
+begin
+  if not is_active() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
+  if is_muted() then raise exception 'הושתקת זמנית ואינך יכול לכתוב כרגע' using errcode = '42501'; end if;
+  if my_reputation() < gag_min_reputation() and not can_remove_content() then
+    raise exception 'מחולל המבזקים פתוח מ-% נקודות מוניטין', gag_min_reputation() using errcode = '42501';
+  end if;
+  if p_template not in ('flash', 'quote', 'notice', 'qa') then raise exception 'תבנית לא מוכרת'; end if;
+  if char_length(x) not between 1 and 400 or char_length(t) > 200 or char_length(g) > 40 then raise exception 'הטקסט ארוך מדי או ריק'; end if;
+  select * into ch from channels where id = p_channel;
+  if not found then raise exception 'החדר לא נמצא'; end if;
+  if ch.admin_only_post and not is_mod() then raise exception 'רק מנהלים כותבים בחדר הזה' using errcode = '42501'; end if;
+  insert into messages (channel_id, author_id, body, gag, flash)
+  values (p_channel, auth.uid(), left(t || E'\n' || x || case when g <> '' then E'\n' || g else '' end, 4000), true,
+          jsonb_build_object('t', p_template, 'title', t, 'text', x, 'sign', g))
+  returning * into m;
+  return m;
+end $$;
+
+-- Recent news flashes (text ones) from every room, for the strip in the main room's banner.
+create or replace function recent_flashes(p_limit int default 30)
+returns table (id bigint, channel_id bigint, author_id uuid, flash jsonb, created_at timestamptz, likes int)
+language sql stable security definer set search_path = public as $$
+  select m.id, m.channel_id, m.author_id, m.flash, m.created_at,
+         (select count(*)::int from message_likes l where l.message_id = m.id)
+    from messages m
+   where m.flash is not null and not m.deleted and (is_active() or guest_view_open())
+   order by m.id desc limit least(greatest(p_limit, 1), 100);
+$$;
 
 -- The week's top image (photo, meme or news flash) and top quote, by likes (x2) and emoji reactions.
 create or replace function weekly_highlights()
@@ -2407,6 +2454,8 @@ do $$ begin
     grant execute on function email_batch(int), email_done(bigint[], boolean), post_birthdays() to service_role;
   end if;
 end $$;
+revoke execute on function send_flash(bigint, text, text, text, text), recent_flashes(int) from anon, public;
+grant execute on function send_flash(bigint, text, text, text, text), recent_flashes(int) to authenticated;
 revoke execute on function my_reputation(), send_gag(bigint, jsonb, text), weekly_highlights(),
   add_event(text, date, date, text, text, bigint), update_event(bigint, text, date, date, text, text), delete_event(bigint),
   resolve_event(bigint, text), event_conflict(text, date, bigint) from anon, public;
@@ -2480,7 +2529,169 @@ grant execute on function guest_view_open(), guest_view_until() to anon, authent
 grant select on channels, messages, profiles, reactions, message_likes, polls, poll_options,
   confessions, confession_reactions, confession_comments, events to anon;
 -- Read-only summaries for guests (totals, the quiz without its open answers, the week's highlights).
-grant execute on function poll_results(bigint), weekly_highlights(), quiz_list(), quiz_leaderboard() to anon;
+grant execute on function poll_results(bigint), weekly_highlights(), quiz_list(), quiz_leaderboard(), recent_flashes(int) to anon;
+
+-- ---------- AI bot ("בוט הנייעס") ----------
+-- Each member has a private conversation with the bot (/bot). The Edge Function "bot" (Google AI Studio /
+-- Gemini, free keys) answers from public room messages only (never private chats or who wrote anonymous
+-- messages). What a member tells it about someone else is a claim: it is shared only after that person
+-- agrees (bot_claims, never naming who said it). The bot can pass a message to another member (relay).
+-- API keys are kept here, readable only by the Edge Function; the owner manages them (masked).
+create table if not exists ai_keys (
+  id             bigint generated always as identity primary key,
+  label          text not null check (char_length(label) between 1 and 40),
+  api_key        text not null check (char_length(api_key) between 10 and 200),
+  model          text not null default 'gemini-2.5-flash' check (char_length(model) between 3 and 60),
+  daily_limit    int  not null default 200 check (daily_limit between 1 and 100000),
+  per_minute     int  not null default 8 check (per_minute between 1 and 1000),
+  enabled        boolean not null default true,
+  used_day       date not null default current_date,
+  used_today     int  not null default 0,
+  minute_start   timestamptz not null default now(),
+  used_minute    int  not null default 0,
+  cooldown_until timestamptz,
+  last_error     text,
+  last_used_at   timestamptz,
+  added_at       timestamptz not null default now()
+);
+alter table ai_keys enable row level security;  -- no policies: owner functions and the Edge Function only
+
+create table if not exists bot_messages (
+  id          bigint generated always as identity primary key,
+  user_id     uuid not null references profiles on delete cascade,  -- whose conversation
+  role        text not null check (role in ('user', 'bot')),
+  body        text not null check (char_length(body) between 1 and 4000),
+  claim_id    bigint,  -- a consent question about this claim (yes / no buttons)
+  from_id     uuid references profiles on delete set null,  -- a message passed on from this member
+  created_at  timestamptz not null default now()
+);
+create index if not exists bot_messages_user_idx on bot_messages (user_id, id);
+alter table bot_messages enable row level security;
+
+create table if not exists bot_claims (
+  id           bigint generated always as identity primary key,
+  about_id     uuid not null references profiles on delete cascade,
+  by_id        uuid references profiles on delete set null,  -- never shown to anyone
+  claim        text not null check (char_length(claim) between 1 and 500),
+  status       text not null default 'pending' check (status in ('pending', 'allowed', 'declined')),
+  created_at   timestamptz not null default now(),
+  answered_at  timestamptz
+);
+create index if not exists bot_claims_about_idx on bot_claims (about_id, status);
+alter table bot_claims enable row level security;  -- no policies: functions and the Edge Function only
+
+-- Gemini's free quota resets at midnight Pacific time.
+create or replace function ai_quota_day() returns date
+language sql stable as $$ select (now() at time zone 'America/Los_Angeles')::date $$;
+
+-- Owner: keys without the secret (first and last 4 characters only).
+create or replace function ai_key_list()
+returns table (id bigint, label text, masked text, model text, daily_limit int, per_minute int, enabled boolean,
+               used_today int, cooldown_until timestamptz, last_error text, last_used_at timestamptz)
+language sql stable security definer set search_path = public as $$
+  select k.id, k.label, left(k.api_key, 4) || '…' || right(k.api_key, 4), k.model, k.daily_limit, k.per_minute, k.enabled,
+         case when k.used_day = ai_quota_day() then k.used_today else 0 end, k.cooldown_until, k.last_error, k.last_used_at
+    from ai_keys k where is_owner() order by k.id;
+$$;
+
+create or replace function ai_key_add(p_label text, p_key text, p_model text default null, p_daily int default 200, p_minute int default 8)
+returns bigint language plpgsql security definer set search_path = public as $$
+declare v bigint;
+begin
+  if not is_owner() then raise exception 'רק מנהל-העל מנהל את מפתחות ה-AI' using errcode = '42501'; end if;
+  insert into ai_keys (label, api_key, model, daily_limit, per_minute)
+  values (trim(p_label), trim(p_key), coalesce(nullif(trim(p_model), ''), 'gemini-2.5-flash'), p_daily, p_minute)
+  returning id into v;
+  return v;
+end $$;
+
+create or replace function ai_key_update(p_id bigint, p_enabled boolean, p_model text, p_daily int, p_minute int) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not is_owner() then raise exception 'רק מנהל-העל מנהל את מפתחות ה-AI' using errcode = '42501'; end if;
+  update ai_keys set enabled = p_enabled, model = coalesce(nullif(trim(p_model), ''), model), daily_limit = p_daily,
+                     per_minute = p_minute, cooldown_until = case when p_enabled then null else cooldown_until end
+   where id = p_id;
+end $$;
+
+create or replace function ai_key_remove(p_id bigint) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not is_owner() then raise exception 'רק מנהל-העל מנהל את מפתחות ה-AI' using errcode = '42501'; end if;
+  delete from ai_keys where id = p_id;
+end $$;
+
+-- Edge Function only: take the least used key that still has quota (today and this minute) and count the use.
+create or replace function ai_take_key(out id bigint, out api_key text, out model text)
+language plpgsql security definer set search_path = public as $$
+declare k ai_keys;
+begin
+  update ai_keys set used_day = ai_quota_day(), used_today = 0 where used_day <> ai_quota_day();
+  update ai_keys set minute_start = now(), used_minute = 0 where minute_start < now() - interval '1 minute';
+  select * into k from ai_keys
+   where enabled and (cooldown_until is null or cooldown_until < now())
+     and used_today < daily_limit and used_minute < per_minute
+   order by used_today::numeric / daily_limit, last_used_at nulls first
+   limit 1 for update skip locked;
+  if not found then return; end if;
+  update ai_keys set used_today = used_today + 1, used_minute = used_minute + 1, last_used_at = now() where ai_keys.id = k.id;
+  id := k.id; api_key := k.api_key; model := k.model;
+end $$;
+
+-- Edge Function only: how the call went. A rate-limited key rests for p_cooldown seconds.
+create or replace function ai_key_result(p_id bigint, p_error text, p_cooldown int default 0) returns void
+language sql security definer set search_path = public as $$
+  update ai_keys set last_error = left(p_error, 300),
+         cooldown_until = case when coalesce(p_cooldown, 0) > 0 then now() + make_interval(secs => p_cooldown) else cooldown_until end
+   where id = p_id;
+$$;
+
+-- A member writes to the bot (the Edge Function answers). Up to 40 messages an hour.
+create or replace function bot_send(p_body text) returns bigint
+language plpgsql security definer set search_path = public as $$
+declare v bigint;
+begin
+  if not is_active() or is_muted() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
+  if char_length(trim(coalesce(p_body, ''))) not between 1 and 1000 then raise exception 'ההודעה ארוכה מדי'; end if;
+  if (select count(*) from bot_messages where user_id = auth.uid() and role = 'user' and created_at > now() - interval '1 hour') >= 40 then
+    raise exception 'הבוט צריך הפסקה. נסה שוב בעוד קצת.';
+  end if;
+  insert into bot_messages (user_id, role, body) values (auth.uid(), 'user', trim(p_body)) returning id into v;
+  return v;
+end $$;
+
+-- The member a claim is about says whether the bot may tell others that it heard it (never who said it).
+create or replace function bot_answer_claim(p_claim bigint, p_allow boolean) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  update bot_claims set status = case when p_allow then 'allowed' else 'declined' end, answered_at = now()
+   where id = p_claim and about_id = auth.uid() and status = 'pending' and is_active();
+  if not found then raise exception 'השאלה כבר נענתה' using errcode = '42501'; end if;
+  insert into bot_messages (user_id, role, body) values (auth.uid(), 'bot',
+    case when p_allow then 'סגור, מעכשיו אם ישאלו אני יכול לספר ששמעתי את זה. אף פעם לא אגיד ממי.'
+         else 'בסדר גמור, זה נשאר אצלי ולא אספר לאף אחד.' end);
+end $$;
+
+-- My own claims about me: what was said and what I answered (for the bot page).
+create or replace function bot_claims_about_me()
+returns table (id bigint, claim text, status text, created_at timestamptz)
+language sql stable security definer set search_path = public as $$
+  select c.id, c.claim, c.status, c.created_at from bot_claims c where c.about_id = auth.uid() and is_active() order by c.id desc;
+$$;
+
+revoke execute on function ai_key_list(), ai_key_add(text, text, text, int, int), ai_key_update(bigint, boolean, text, int, int),
+  ai_key_remove(bigint), bot_send(text), bot_answer_claim(bigint, boolean), bot_claims_about_me() from anon, public;
+grant execute on function ai_key_list(), ai_key_add(text, text, text, int, int), ai_key_update(bigint, boolean, text, int, int),
+  ai_key_remove(bigint), bot_send(text), bot_answer_claim(bigint, boolean), bot_claims_about_me() to authenticated;
+revoke execute on function ai_take_key(), ai_key_result(bigint, text, int) from anon, public, authenticated;
+do $$ begin
+  if exists (select 1 from pg_roles where rolname = 'service_role') then
+    grant execute on function ai_take_key(), ai_key_result(bigint, text, int) to service_role;
+  end if;
+end $$;
+
+drop policy if exists bot_messages_own on bot_messages;
+create policy bot_messages_own on bot_messages for select using (user_id = auth.uid() or is_owner());
 
 -- ---------- Row Level Security ----------
 alter table profiles         enable row level security;
@@ -2734,7 +2945,7 @@ alter table message_likes replica identity full;
 do $$
 declare t text;
 begin
-  foreach t in array array['messages', 'reactions', 'message_likes', 'profiles', 'channels', 'wall_posts', 'dm_messages', 'dm_reactions', 'polls', 'events'] loop
+  foreach t in array array['messages', 'reactions', 'message_likes', 'profiles', 'channels', 'wall_posts', 'dm_messages', 'dm_reactions', 'polls', 'events', 'bot_messages'] loop
     begin
       execute format('alter publication supabase_realtime add table %I', t);
     exception when duplicate_object then null;

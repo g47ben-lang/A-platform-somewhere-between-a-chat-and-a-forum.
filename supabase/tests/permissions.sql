@@ -706,6 +706,61 @@ select pg_temp.denied($$select send_dm(1, 'x')$$, 'banned user cannot send DMs')
 select pg_temp.check((select count(*) = 0 from my_rooms()), 'banned user gets no rooms');
 reset role;
 
+-- ===== News flash as text =====
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select pg_temp.denied($$select send_flash((select id from channels where is_main), 'flash', 'מבזק', 'בדיקה')$$, 'news flash needs reputation');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000e0');
+select send_flash((select id from channels where is_main), 'flash', 'מבזק', 'השיעור נדחה בשעה');
+select pg_temp.check((select flash ->> 'text' = 'השיעור נדחה בשעה' and gag and attachment is null from messages where flash is not null order by id desc limit 1), 'flash posted as text');
+select pg_temp.denied($$select send_flash((select id from channels where is_main), 'evil', 'x', 'y')$$, 'unknown flash template rejected');
+update messages set body = 'שונה', flash = '{"t":"flash","title":"x","text":"hack"}' where flash is not null;
+select pg_temp.check((select flash ->> 'text' = 'השיעור נדחה בשעה' and body <> 'שונה' from messages where flash is not null order by id desc limit 1), 'a flash cannot be edited');
+select pg_temp.check((select count(*) >= 1 from recent_flashes()), 'flashes listed for the banner');
+update messages set deleted = true where id = (select max(id) from messages where flash is not null);
+select pg_temp.check((select count(*) = 0 from recent_flashes()), 'deleted flash disappears');
+reset role;
+
+-- ===== AI bot =====
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select pg_temp.check(bot_send('מה הנייעס?') > 0, 'member writes to the bot');
+select pg_temp.check((select count(*) = 1 from bot_messages), 'member sees his own bot conversation');
+select pg_temp.denied($$insert into bot_messages (user_id, role, body) values (auth.uid(), 'bot', 'fake')$$, 'member cannot fake bot answers');
+select pg_temp.check((select count(*) = 0 from bot_claims), 'claims are hidden from members');
+select pg_temp.check((select count(*) = 0 from ai_key_list()), 'member sees no AI keys');
+select pg_temp.denied($$select ai_key_add('x', 'AIzaSyFAKEFAKEFAKE')$$, 'member cannot add AI keys');
+select pg_temp.denied($$select * from ai_take_key()$$, 'member cannot take an AI key');
+select pg_temp.check((select count(*) = 0 from ai_keys), 'member cannot read AI keys directly');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+select pg_temp.check((select count(*) = 0 from bot_messages), 'another member cannot read my bot conversation');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+select pg_temp.denied($$select ai_key_add('x', 'AIzaSyFAKEFAKEFAKE')$$, 'a regular admin cannot add AI keys (owner only)');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000e0');
+select ai_key_add('ראשי', 'AIzaSyFAKEFAKEFAKE1234', null, 100, 2);
+select pg_temp.check((select masked = 'AIza…1234' and model = 'gemini-2.5-flash' from ai_key_list()), 'owner sees keys masked');
+reset role;
+-- the Edge Function (service role) takes keys within the per-minute limit
+select pg_temp.check((select api_key = 'AIzaSyFAKEFAKEFAKE1234' from ai_take_key()), 'edge function takes a key');
+select * from ai_take_key();
+select pg_temp.check((select id is null from ai_take_key()), 'per-minute limit respected');
+update ai_keys set minute_start = now() - interval '2 minutes';
+select ai_key_result((select min(id) from ai_keys), '429', 60);
+select pg_temp.check((select id is null from ai_take_key()), 'a rate-limited key rests');
+-- claims need the consent of the member they are about
+insert into bot_claims (about_id, by_id, claim) values ('00000000-0000-0000-0000-00000000000d', '00000000-0000-0000-0000-00000000000b', 'הוא יודע לפתח אתרים');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+select pg_temp.denied($$select bot_answer_claim((select max(id) from bot_claims), true)$$, 'only the member a claim is about may allow it');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select pg_temp.check((select count(*) = 1 and bool_and(status = 'pending') from bot_claims_about_me()), 'member sees claims about himself');
+select bot_answer_claim((select max(id) from bot_claims_about_me()), true);
+select pg_temp.denied($$select bot_answer_claim((select max(id) from bot_claims_about_me()), false)$$, 'a claim is answered once');
+reset role;
+select pg_temp.check((select status = 'allowed' from bot_claims order by id desc limit 1), 'claim allowed by its subject');
+
 -- ===== Guest view (read-only without logging in) =====
 create or replace function pg_temp.as_anon() returns void language plpgsql as $$
 begin
