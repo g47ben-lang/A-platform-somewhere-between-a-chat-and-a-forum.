@@ -8,7 +8,7 @@ import Icon from '../components/Icon';
 import RichText from '../components/RichText';
 import { KeyGuide, MyKeyDialog, useBotQuota } from '../components/BotKey';
 
-export const BOT_NAME = 'סנדר';
+export const BOT_NAME = 'נייעסניק';
 
 interface BotMessage {
   id: number;
@@ -130,8 +130,8 @@ export default function BotPage() {
       <div className="notice bot-notice">
         <Icon name="lock" size={18} />
         <span>
-          על חבר סנדר מספר רק מה שהחבר כתב בעצמו בצ'אט, או מה שהחבר אישר לספר, ואף פעם לא ממי שמע. הוא לא רואה צ'אטים אישיים. ההודעות
-          כאן נשלחות לשירות ה-AI של Google כדי לענות, ולכן לא כותבים פה דברים פרטיים. מנהל-העל רואה מדגם מהשיחות עם סנדר, וסנדר מדווח לו על דברים חריגים (למשל ניסיון לברר מי כתב אנונימית, בריונות או מצוקה).
+          על חבר נייעסניק מספר רק מה שהחבר כתב בעצמו בצ'אט, או מה שהחבר אישר לספר, ואף פעם לא ממי שמע. הוא לא רואה צ'אטים אישיים. ההודעות
+          כאן נשלחות לשירות ה-AI של Google כדי לענות, ולכן לא כותבים פה דברים פרטיים. מנהל-העל רואה מדגם מהשיחות עם נייעסניק, ונייעסניק מדווח לו על דברים חריגים (למשל ניסיון לברר מי כתב אנונימית, בריונות או מצוקה).
         </span>
       </div>
       <div className="stream bubbles bot-stream">
@@ -185,7 +185,7 @@ export default function BotPage() {
         </div>
       </div>
       <div className="composer-wrap">
-        {!mustAddKey && !blocked && <p className="bot-tip">תשובה בעייתית? כתוב לסנדר "יש לי תלונה עליך".</p>}
+        {!mustAddKey && !blocked && <p className="bot-tip">תשובה בעייתית? כתוב לנייעסניק "יש לי תלונה עליך".</p>}
         {mustAddKey && !blocked ? (
           <KeyGuide onSaved={() => { setNeedKey(false); reloadQuota(); }} />
         ) : blocked ? (

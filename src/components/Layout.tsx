@@ -45,7 +45,7 @@ export default function Layout() {
   // Rooms I muted go to the bottom, without an unread count.
   const topicRooms = rooms.filter((r) => !r.is_main).sort((a, b) => Number(mutedRooms.has(a.id)) - Number(mutedRooms.has(b.id)));
   const unreadOf = (r: { id: number; unread: number }) => (mutedRooms.has(r.id) ? 0 : r.unread);
-  // Owner: new reports from סנדר (badge on "ניהול הקהילה").
+  // Owner: new reports from נייעסניק (badge on "ניהול הקהילה").
   const { isOwner } = useApp();
   const [botAlerts, setBotAlerts] = useState(0);
   useEffect(() => {
@@ -253,7 +253,7 @@ export default function Layout() {
             <NavLink to="/admin" className="nav-item">
               <Icon name="admin_panel_settings" />
               <span className="nav-label">ניהול הקהילה</span>
-              {botAlerts > 0 && <span className="badge-count" title="דיווחים חדשים מסנדר">{botAlerts}</span>}
+              {botAlerts > 0 && <span className="badge-count" title="דיווחים חדשים מנייעסניק">{botAlerts}</span>}
             </NavLink>
             <NavLink to="/moderation" className="nav-item">
               <Icon name="flag" />

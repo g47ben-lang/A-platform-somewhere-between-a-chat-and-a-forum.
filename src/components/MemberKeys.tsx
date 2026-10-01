@@ -21,7 +21,7 @@ export interface MemberKey {
 
 const FREE_DAILY = 10; // must match bot_free_daily() in schema.sql
 
-/** Owner-only control panel: every member's own key for סנדר (to help members who ask). */
+/** Owner-only control panel: every member's own key for נייעסניק (to help members who ask). */
 export default function MemberKeysAdmin() {
   const { nameOf } = useApp();
   const [rows, setRows] = useState<MemberKey[] | null>(null);
@@ -45,7 +45,7 @@ export default function MemberKeysAdmin() {
         {broken > 0 && <span className="role-tag">{broken} עם שגיאה</span>}
       </div>
       <p className="muted small">
-        כל מי שיש לו מפתח משלו או שדיבר עם סנדר. אפשר להציג את המפתח, להדביק מפתח שחבר שלח לך, לכבות, להחזיר ממנוחה ולמחוק. אותו כרטיס
+        כל מי שיש לו מפתח משלו או שדיבר עם נייעסניק. אפשר להציג את המפתח, להדביק מפתח שחבר שלח לך, לכבות, להחזיר ממנוחה ולמחוק. אותו כרטיס
         מופיע גם בפרופיל של כל חבר (רק אצלך).
       </p>
       <input className="search-input" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="חיפוש חבר" />
@@ -70,7 +70,7 @@ export default function MemberKeysAdmin() {
   );
 }
 
-/** Owner-only card in a member's profile: his key for סנדר. */
+/** Owner-only card in a member's profile: his key for נייעסניק. */
 export function MemberKeyCard({ userId }: { userId: string }) {
   const [row, setRow] = useState<MemberKey | null | undefined>(undefined);
   const load = useCallback(async () => {
@@ -83,7 +83,7 @@ export function MemberKeyCard({ userId }: { userId: string }) {
   if (row === undefined) return null;
   return (
     <section className="card-section member-key-card">
-      <div className="section-head"><h2><Icon name="smart_toy" size={20} /> המפתח שלו לסנדר</h2><span className="muted small">רק אצלך</span></div>
+      <div className="section-head"><h2><Icon name="smart_toy" size={20} /> המפתח שלו לנייעסניק</h2><span className="muted small">רק אצלך</span></div>
       <KeyControls row={row ?? { user_id: userId, key_id: null, masked: null, enabled: null, used_today: null, daily_limit: null, cooldown_until: null, last_error: null, last_used_at: null, free_used: null }} onChanged={load} />
     </section>
   );

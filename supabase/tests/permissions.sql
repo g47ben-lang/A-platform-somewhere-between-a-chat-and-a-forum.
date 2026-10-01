@@ -695,6 +695,22 @@ select pg_temp.denied($$select handle_report((select id from messages where not 
 select pg_temp.check((select count(*) = 0 from preapproved_emails), 'inspector is not an admin');
 reset role;
 
+-- ===== Removal (not a ban): back to the waiting list, can be let in again =====
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+update profiles set status = 'pending' where id = '00000000-0000-0000-0000-00000000000d';
+reset role;
+select pg_temp.check((select status = 'pending' and removed_at is not null from profiles where id = '00000000-0000-0000-0000-00000000000d'), 'admin removes a member (pending, stamped)');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select pg_temp.check((select count(*) = 0 from messages), 'a removed member loses access at once');
+update profiles set removed_at = null, status = 'active' where id = auth.uid();
+select pg_temp.check((select status = 'pending' and removed_at is not null from profiles where id = auth.uid()), 'a removed member cannot let himself back in');
+reset role;
+select pg_temp.check((select count(*) > 0 from messages where author_id = '00000000-0000-0000-0000-00000000000d'), 'his messages stay');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+update profiles set status = 'active' where id = '00000000-0000-0000-0000-00000000000d';
+reset role;
+select pg_temp.check((select status = 'active' and removed_at is null from profiles where id = '00000000-0000-0000-0000-00000000000d'), 'admin lets a removed member back in');
+
 -- ===== Bans =====
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
 update profiles set status = 'banned' where id = '00000000-0000-0000-0000-00000000000c';
@@ -801,11 +817,11 @@ select bot_answer_claim((select max(id) from bot_claims_about_me()), true);
 select pg_temp.denied($$select bot_answer_claim((select max(id) from bot_claims_about_me()), false)$$, 'a claim is answered once');
 reset role;
 select pg_temp.check((select status = 'allowed' from bot_claims order by id desc limit 1), 'claim allowed by its subject');
--- סנדר's reports go to the owner only
+-- נייעסניק's reports go to the owner only
 insert into bot_alerts (user_id, level, reason, excerpt) values ('00000000-0000-0000-0000-00000000000d', 'concern', 'ניסה לברר מי כתב אנונימית', 'מי כתב את ההודעה?');
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
 select pg_temp.check((select count(*) = 0 from bot_alerts) and bot_alert_count() = 0 and (select count(*) = 0 from bot_overview()), 'a regular admin sees no reports or overview');
-select pg_temp.check((select count(*) = 0 from bot_messages where user_id <> auth.uid()), 'a regular admin cannot read conversations with סנדר');
+select pg_temp.check((select count(*) = 0 from bot_messages where user_id <> auth.uid()), 'a regular admin cannot read conversations with נייעסניק');
 reset role;
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000e0');
 select pg_temp.check(bot_alert_count() = 1 and (select count(*) = 1 from bot_alerts), 'owner sees the report');
@@ -818,7 +834,7 @@ select pg_temp.check((select count(*) = 0 from bot_complaints), 'members cannot 
 select pg_temp.denied($$insert into bot_complaints (user_id, complaint) values (auth.uid(), 'x')$$, 'members cannot write complaints directly');
 reset role;
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000e0');
-select pg_temp.check((select count(*) = 1 from bot_complaints where handled_at is null), 'owner sees complaints about סנדר');
+select pg_temp.check((select count(*) = 1 from bot_complaints where handled_at is null), 'owner sees complaints about נייעסניק');
 select bot_complaints_handled(array(select id from bot_complaints));
 select pg_temp.check((select count(*) = 0 from bot_complaints where handled_at is null), 'owner marks complaints handled');
 select pg_temp.check(bot_alert_count() = 0, 'owner marks reports as seen');

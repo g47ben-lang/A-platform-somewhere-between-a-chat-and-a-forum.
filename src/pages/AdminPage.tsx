@@ -33,7 +33,7 @@ export default function AdminPage() {
   const [filter, setFilter] = useState('');
   const [editRoom, setEditRoom] = useState<Room | null>(null);
   const [newRoom, setNewRoom] = useState(false);
-  // Owner: new reports from סנדר.
+  // Owner: new reports from נייעסניק.
   const [botAlerts, setBotAlerts] = useState(0);
   useEffect(() => {
     if (isOwner) supabase.rpc('bot_alert_count').then(({ data }) => setBotAlerts((data as number) ?? 0));
@@ -78,6 +78,17 @@ export default function AdminPage() {
   async function ban(p: Profile) {
     const ok = await confirm({ title: `חסימת ${p.display_name}`, body: 'החבר יאבד גישה לכל תוכן הקהילה עד לביטול החסימה.', confirmLabel: 'חסימה', danger: true });
     if (ok) updateOne(p, { status: 'banned' });
+  }
+
+  // Removal is not a ban: he goes back to the waiting list, keeps his account and messages, and can be let in again.
+  async function remove(p: Profile) {
+    const ok = await confirm({
+      title: `הסרת ${p.display_name} מהקבוצה`,
+      body: 'הוא יאבד גישה מיד, אבל לא ייחסם: החשבון וההודעות שלו נשמרים, והוא יופיע ברשימת הממתינים. כדי להחזיר אותו לוחצים שם "אישור".',
+      confirmLabel: 'הסרה',
+      danger: true,
+    });
+    if (ok && (await update([p.id], { status: 'pending' }))) toast(`${p.display_name} הוסר מהקבוצה`);
   }
 
   async function approveAll() {
@@ -128,13 +139,13 @@ export default function AdminPage() {
           </button>
           {isOwner && (
             <button className={tab === 'sender' ? 'on' : ''} onClick={() => setTab('sender')} role="tab">
-              <Icon name="flag" size={20} /> סנדר מדווח
+              <Icon name="flag" size={20} /> נייעסניק מדווח
               {botAlerts > 0 && <span className="badge-count">{botAlerts}</span>}
             </button>
           )}
           {isOwner && (
             <button className={tab === 'ai' ? 'on' : ''} onClick={() => setTab('ai')} role="tab">
-              <Icon name="smart_toy" size={20} /> סנדר (AI)
+              <Icon name="smart_toy" size={20} /> נייעסניק (AI)
             </button>
           )}
           {isOwner && (
@@ -213,7 +224,7 @@ export default function AdminPage() {
                       <Avatar id={p.id} name={p.display_name} size={40} />
                       <div className="list-main">
                         <div className="list-title">{p.display_name}</div>
-                        <div className="list-sub">נרשם {timeAgo(p.created_at)}</div>
+                        <div className="list-sub">{p.removed_at ? `הוסר מהקבוצה ${timeAgo(p.removed_at)} · אישור יחזיר אותו` : `נרשם ${timeAgo(p.created_at)}`}</div>
                       </div>
                       <div className="row gap">
                         <button className="btn text danger" onClick={() => updateOne(p, { status: 'banned' })}>דחייה</button>
@@ -253,7 +264,10 @@ export default function AdminPage() {
                       {p.id === ownerId ? null : p.status === 'banned' ? (
                         <button className="btn text" onClick={() => updateOne(p, { status: 'active' })}>ביטול חסימה</button>
                       ) : (
-                        <button className="btn text danger" onClick={() => ban(p)}>חסימה</button>
+                        <>
+                          {p.id !== me?.id && <button className="btn text" onClick={() => remove(p)}>הסרה</button>}
+                          <button className="btn text danger" onClick={() => ban(p)}>חסימה</button>
+                        </>
                       )}
                     </div>
                   </li>

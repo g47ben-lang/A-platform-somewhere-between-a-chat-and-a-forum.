@@ -58,7 +58,7 @@ export default function GagMaker({ roomId, onClose, onSent }: { roomId: number; 
     const { data, error } = await supabase.functions.invoke('bot', { body: { mode: 'gag', template: t, idea: text || title } });
     setWriting(false);
     const r = data as { title?: string; text?: string; sign?: string; error?: string } | null;
-    if (error || !r || r.error) return toast(r?.error ?? 'סנדר לא זמין כרגע', 'error');
+    if (error || !r || r.error) return toast(r?.error ?? 'נייעסניק לא זמין כרגע', 'error');
     if (r.title) setTitle(r.title);
     if (r.text) setText(r.text);
     if (r.sign !== undefined && t !== 'flash' && t !== 'qa') setSign(r.sign);
@@ -95,7 +95,7 @@ export default function GagMaker({ roomId, onClose, onSent }: { roomId: number; 
               </label>
             )}
             <button type="button" className="btn tonal small" onClick={aiWrite} disabled={writing}>
-              <Icon name="smart_toy" size={18} /> {writing ? 'סנדר כותב…' : text.trim() ? 'שיפור עם סנדר' : 'כתוב לי (סנדר)'}
+              <Icon name="smart_toy" size={18} /> {writing ? 'נייעסניק כותב…' : text.trim() ? 'שיפור עם נייעסניק' : 'כתוב לי (נייעסניק)'}
             </button>
             <p className="muted small">המבזק מתפרסם כטקסט מעוצב (לא כתמונה, כדי שנטפרי לא יעכב אותו) בחדר הנוכחי, ומופיע ב"כל המבזקים" בכותרת הכחולה של הצ'אט הראשי.</p>
             <div className="dialog-actions">

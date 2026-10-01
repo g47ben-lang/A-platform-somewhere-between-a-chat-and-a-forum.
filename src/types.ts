@@ -18,6 +18,8 @@ export interface Profile {
   joined_via: 'email' | 'roster' | null;
   /** false until an admin looks at a join by roster name. */
   join_seen: boolean;
+  /** Removed from the group by an admin (back to pending, not banned). */
+  removed_at?: string | null;
   created_at: string;
 }
 

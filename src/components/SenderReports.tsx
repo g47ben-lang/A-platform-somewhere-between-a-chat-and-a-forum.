@@ -42,7 +42,7 @@ interface BotMsg {
 
 const LEVEL: Record<Alert['level'], string> = { odd: 'מוזר', concern: 'מדאיג', urgent: 'דחוף' };
 
-/** Owner-only: סנדר's reports on unusual conversations, and a sample of conversations with it. */
+/** Owner-only: נייעסניק's reports on unusual conversations, and a sample of conversations with it. */
 export default function SenderReports() {
   const { nameOf } = useApp();
   const [alerts, setAlerts] = useState<Alert[] | null>(null);
@@ -72,7 +72,7 @@ export default function SenderReports() {
     load();
   }
 
-  // All open complaints as one text, to paste to whoever improves סנדר.
+  // All open complaints as one text, to paste to whoever improves נייעסניק.
   async function copyComplaints() {
     const text = [`תלונות על ${BOT_NAME} (${complaints.length}):`, '']
       .concat(complaints.map((c, i) => `${i + 1}. ${fullDate(c.created_at)}\nהתלונה: ${c.complaint}${c.quote ? `\nמה ${BOT_NAME} ענה: "${c.quote}"` : ''}\n`))
@@ -106,7 +106,7 @@ export default function SenderReports() {
           )}
         </div>
         <p className="muted small">
-          כשחבר כותב לסנדר "יש לי תלונה עליך" או מתעצבן עליו, סנדר שואל מה הפריע ורושם את זה כאן, עם התשובה שהפריעה. מדי פעם מעתיקים את
+          כשחבר כותב לנייעסניק "יש לי תלונה עליך" או מתעצבן עליו, נייעסניק שואל מה הפריע ורושם את זה כאן, עם התשובה שהפריעה. מדי פעם מעתיקים את
           כולן, שולחים לתיקון ומסמנים כטופלו.
         </p>
         {complaints.length === 0 ? (

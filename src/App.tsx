@@ -53,10 +53,12 @@ export default function App() {
           <span className={`status-icon ${banned ? 'bad' : ''}`}>
             <Icon name={banned ? 'block' : 'shield_person'} size={32} />
           </span>
-          <h1 className="auth-title">{banned ? 'הגישה לחשבון חסומה' : 'החשבון ממתין לאישור'}</h1>
+          <h1 className="auth-title">{banned ? 'הגישה לחשבון חסומה' : me?.removed_at ? 'הוסרת מהקבוצה' : 'החשבון ממתין לאישור'}</h1>
           <p className="auth-sub">
             {banned
               ? 'החשבון הושעה על ידי מנהלי הקהילה.'
+              : me?.removed_at
+              ? 'מנהלי הקהילה הסירו אותך מהקבוצה. זו לא חסימה: החשבון שלך נשמר, ואם מנהל יאשר אותך שוב, הדף ייפתח אוטומטית.'
               : `שלום ${me?.display_name ?? ''}, בקשת ההצטרפות התקבלה. השם או המייל שלך לא נמצאו ברשימות המאושרות, ולכן מנהל יבדוק את הבקשה. אם היא תאושר, הדף ייפתח אוטומטית.`}
           </p>
           <div className="auth-actions">
