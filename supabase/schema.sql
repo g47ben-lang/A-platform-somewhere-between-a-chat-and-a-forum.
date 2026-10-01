@@ -2573,6 +2573,18 @@ create table if not exists bot_messages (
   created_at  timestamptz not null default now()
 );
 create index if not exists bot_messages_user_idx on bot_messages (user_id, id);
+-- A relay whose sender asked to stay anonymous: from_id stays NULL on the recipient's row (he can read his rows),
+-- and the sender sits in bot_relay_senders, which only the Edge Function and the owner can read, so an answer can
+-- still go back to him.
+alter table bot_messages add column if not exists relay_anon boolean not null default false;
+create table if not exists bot_relay_senders (
+  message_id  bigint primary key references bot_messages on delete cascade,
+  from_id     uuid not null references profiles on delete cascade,
+  created_at  timestamptz not null default now()
+);
+alter table bot_relay_senders enable row level security;
+drop policy if exists bot_relay_senders_owner on bot_relay_senders;
+create policy bot_relay_senders_owner on bot_relay_senders for select using (is_owner());
 alter table bot_messages enable row level security;
 
 create table if not exists bot_claims (

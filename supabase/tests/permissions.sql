@@ -780,6 +780,16 @@ select pg_temp.check((select id is null from ai_take_key()), 'per-minute limit r
 update ai_keys set minute_start = now() - interval '2 minutes';
 select ai_key_result((select min(id) from ai_keys where owner_id is null), '429', 60);
 select pg_temp.check((select id is null from ai_take_key()), 'a rate-limited key rests');
+-- an anonymous relay never exposes its sender to the recipient
+insert into bot_messages (user_id, role, body, relay_anon) values ('00000000-0000-0000-0000-00000000000b', 'bot', 'מישהו ביקש שאעביר לך (בעילום שם): בדיקה', true);
+insert into bot_relay_senders (message_id, from_id) values ((select max(id) from bot_messages), '00000000-0000-0000-0000-00000000000d');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+select pg_temp.check((select from_id is null and relay_anon from bot_messages where relay_anon order by id desc limit 1), 'recipient sees an anonymous relay without its sender');
+select pg_temp.check((select count(*) = 0 from bot_relay_senders), 'recipient cannot read who sent an anonymous relay');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000e0');
+select pg_temp.check((select count(*) = 1 from bot_relay_senders), 'owner can see the sender of an anonymous relay');
+reset role;
 -- claims need the consent of the member they are about
 insert into bot_claims (about_id, by_id, claim) values ('00000000-0000-0000-0000-00000000000d', '00000000-0000-0000-0000-00000000000b', 'הוא יודע לפתח אתרים');
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');

@@ -16,6 +16,7 @@ interface BotMessage {
   body: string;
   claim_id: number | null;
   from_id: string | null;
+  relay_anon?: boolean;
   created_at: string;
 }
 
@@ -157,7 +158,7 @@ export default function BotPage() {
                   <div key={m.id} className={`b-row ${m.role === 'user' ? 'mine' : 'theirs'}`}>
                     <div className="b-col">
                       <div className="b-line">
-                        <div className={`bubble ${m.from_id ? 'relay' : ''}`}>
+                        <div className={`bubble ${m.from_id || m.relay_anon ? 'relay' : ''}`}>
                           <div className="b-text"><RichText text={m.body} names={[]} /></div>
                           {m.claim_id && status === 'pending' && (
                             <div className="row gap claim-actions">
