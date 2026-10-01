@@ -6,7 +6,8 @@ import PasswordFields, { passwordProblem } from '../components/PasswordFields';
 
 type Mode = 'login' | 'signup' | 'reset';
 
-export default function AuthPage() {
+/** onGuest: shown while guest view is open, to go back to reading without logging in. */
+export default function AuthPage({ onGuest }: { onGuest?: () => void } = {}) {
   const [mode, setMode] = useState<Mode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -103,6 +104,11 @@ export default function AuthPage() {
         </div>
         <h1 className="auth-title">{heading}</h1>
         <p className="auth-sub">{sub}</p>
+        {onGuest && (
+          <button type="button" className="btn tonal guest-back" onClick={onGuest}>
+            <Icon name="visibility" size={18} /> חזרה לצפייה בצ'אט בלי להתחבר
+          </button>
+        )}
         {mode !== 'reset' && <JoinInfo login={mode === 'login'} />}
 
         {mode === 'signup' && (

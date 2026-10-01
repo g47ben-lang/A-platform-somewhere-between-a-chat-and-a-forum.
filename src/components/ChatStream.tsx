@@ -72,6 +72,8 @@ interface Props {
   typingLabel?: string;
   /** Changes whenever the user sends, to force scrolling to the newest message. */
   sentTick?: number;
+  /** Visitors who are not logged in (guest view): no actions, no profile cards, no links. */
+  readOnly?: boolean;
 }
 
 const GROUP_MS = 5 * 60 * 1000;
@@ -289,6 +291,8 @@ function Bubble({
           {!grouped &&
             (isAnon ? (
               <Avatar anonymous size={32} />
+            ) : props.readOnly ? (
+              <Avatar id={m.authorId} name={author?.display_name} size={32} />
             ) : (
               <button className="avatar-link" onClick={(e) => openCard(m.authorId!, e.currentTarget)} aria-label={nameOf(m.authorId)}>
                 <Avatar id={m.authorId} name={author?.display_name} size={32} online={online.has(m.authorId!)} />
@@ -304,6 +308,8 @@ function Bubble({
                 אנונימי{m.mine && <span className="you-tag">שלך</span>}
                 {m.revealedAuthor && <span className="revealed-tag" title="גלוי רק למנהל-העל">{m.revealedAuthor}</span>}
               </span>
+            ) : props.readOnly ? (
+              <span className="author">{nameOf(m.authorId)}</span>
             ) : (
               <button className="author" onClick={(e) => openCard(m.authorId!, e.currentTarget)}>{nameOf(m.authorId)}</button>
             )}
@@ -335,12 +341,12 @@ function Bubble({
                     <RichText text={m.body} names={names} myName={me?.display_name} />
                   </div>
                 )}
-                {m.eventLabel && (
+                {m.eventLabel && !props.readOnly && (
                   <Link to="/events" className="b-event">
                     <Icon name="calendar_month" size={16} /> בלוח: {m.eventLabel}
                   </Link>
                 )}
-                {m.pollId && (
+                {m.pollId && !props.readOnly && (
                   <Link to={`/polls/${m.pollId}`} className="b-poll">
                     <Icon name="ballot" size={18} /> למענה על הסקר
                   </Link>
@@ -355,7 +361,7 @@ function Bubble({
             </div>
           </div>
 
-          {!m.deleted && (
+          {!m.deleted && !props.readOnly && (
             <div className="b-toolbar" onClick={(e) => e.stopPropagation()}>
               {props.onLike && !m.mine && (
                 <button
@@ -404,14 +410,16 @@ function Bubble({
               </button>
             )}
             {m.reactions.map((r) => (
-              <button key={r.emoji} className={`reaction ${r.mine ? 'mine' : ''}`} onClick={() => react(r.emoji)} title={r.names.join(', ')}>
+              <button key={r.emoji} className={`reaction ${r.mine ? 'mine' : ''}`} onClick={() => react(r.emoji)} disabled={props.readOnly} title={r.names.join(', ')}>
                 <span className="r-emoji">{r.emoji}</span>
                 <span>{r.count}</span>
               </button>
             ))}
-            <button className="reaction add" onClick={(e) => setPicker(at(e.currentTarget))} aria-label="הוספת תגובה">
-              <Icon name="add_reaction" size={16} />
-            </button>
+            {!props.readOnly && (
+              <button className="reaction add" onClick={(e) => setPicker(at(e.currentTarget))} aria-label="הוספת תגובה">
+                <Icon name="add_reaction" size={16} />
+              </button>
+            )}
           </div>
         )}
       </div>

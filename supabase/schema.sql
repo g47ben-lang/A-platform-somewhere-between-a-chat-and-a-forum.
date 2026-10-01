@@ -2434,6 +2434,49 @@ grant execute on function create_room, send_message, mark_room_read, mark_room_u
   post_wall, start_dm, send_dm, toggle_dm_reaction, mark_dm_read, mark_dm_unread, set_dm_closed, my_conversations,
   member_stats to authenticated;
 
+-- ---------- Guest view (temporary, read-only, without logging in) ----------
+-- An admin may open the rooms for reading to visitors who are not logged in, for a limited time
+-- (e.g. two days to introduce the site to the public). It closes by itself when the time is up.
+-- Guests read only rooms, room messages, active members' names and reactions/likes: never private
+-- chats, anonymous authors, polls, confessions or anything else, and they cannot write anything.
+create table if not exists site_settings (
+  id                int primary key default 1 check (id = 1),
+  guest_view_until  timestamptz,
+  guest_view_by     uuid references profiles on delete set null
+);
+insert into site_settings (id) values (1) on conflict (id) do nothing;
+alter table site_settings enable row level security;  -- no policies: functions only
+
+create or replace function guest_view_open() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from site_settings where id = 1 and guest_view_until > now());
+$$;
+
+-- Until when visitors may read without logging in (null = closed). Anyone may ask, logged in or not.
+create or replace function guest_view_until() returns timestamptz
+language sql stable security definer set search_path = public as $$
+  select guest_view_until from site_settings where id = 1 and guest_view_until > now();
+$$;
+
+-- Admins only: open guest view for p_hours hours from now (1..720), or close it (null / 0).
+create or replace function set_guest_view(p_hours int) returns timestamptz
+language plpgsql security definer set search_path = public as $$
+declare v timestamptz;
+begin
+  if not is_admin() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
+  if p_hours is not null and p_hours not between 0 and 720 then raise exception 'אפשר לפתוח לכל היותר ל-30 יום'; end if;
+  v := case when coalesce(p_hours, 0) = 0 then null else now() + make_interval(hours => p_hours) end;
+  insert into site_settings (id, guest_view_until, guest_view_by) values (1, v, auth.uid())
+  on conflict (id) do update set guest_view_until = excluded.guest_view_until, guest_view_by = excluded.guest_view_by;
+  return v;
+end $$;
+
+revoke execute on function set_guest_view(int) from anon, public;
+grant execute on function set_guest_view(int) to authenticated;
+grant execute on function guest_view_open(), guest_view_until() to anon, authenticated;
+-- Supabase grants these already; explicit so RLS alone decides what a visitor sees.
+grant select on channels, messages, profiles, reactions, message_likes to anon;
+
 -- ---------- Row Level Security ----------
 alter table profiles         enable row level security;
 alter table channels         enable row level security;
@@ -2527,6 +2570,18 @@ create policy likes_insert on message_likes for insert with check (
 );
 drop policy if exists likes_delete on message_likes;
 create policy likes_delete on message_likes for delete using (user_id = auth.uid());
+
+-- Guest view (see site_settings): read-only, only while an admin keeps it open.
+drop policy if exists channels_guest on channels;
+create policy channels_guest on channels for select to anon, authenticated using (guest_view_open());
+drop policy if exists messages_guest on messages;
+create policy messages_guest on messages for select to anon, authenticated using (guest_view_open());
+drop policy if exists profiles_guest on profiles;
+create policy profiles_guest on profiles for select to anon, authenticated using (status = 'active' and guest_view_open());
+drop policy if exists reactions_guest on reactions;
+create policy reactions_guest on reactions for select to anon, authenticated using (guest_view_open());
+drop policy if exists likes_guest on message_likes;
+create policy likes_guest on message_likes for select to anon, authenticated using (guest_view_open());
 
 -- pre-approved emails: admins only (adding goes through add_preapproved)
 drop policy if exists preapproved_admin_select on preapproved_emails;
@@ -2685,6 +2740,10 @@ begin
   execute $p$create policy media_read on storage.objects for select to authenticated
              using (bucket_id = 'media' and public.is_active())$p$;
   -- Admins, moderators and inspectors may physically delete any stored photo or video.
+  -- Chat photos and profile pictures, only while guest view is open (see site_settings).
+  execute 'drop policy if exists media_guest_read on storage.objects';
+  execute $p$create policy media_guest_read on storage.objects for select to anon
+             using (bucket_id = 'media' and public.guest_view_open())$p$;
   execute 'drop policy if exists media_delete on storage.objects';
   execute $p$create policy media_delete on storage.objects for delete to authenticated
              using (bucket_id = 'media' and public.can_remove_content())$p$;

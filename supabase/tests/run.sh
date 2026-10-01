@@ -15,9 +15,9 @@ do $$ begin create role authenticated nologin; exception when duplicate_object t
 create schema auth;
 create table auth.users (id uuid primary key default gen_random_uuid(), email text, raw_user_meta_data jsonb default '{}', encrypted_password text, email_confirmed_at timestamptz);
 create function auth.uid() returns uuid language sql stable as $f$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $f$;
-grant usage on schema auth to authenticated;
+grant usage on schema auth to authenticated, anon;
 create publication supabase_realtime;
-alter default privileges in schema public grant all on tables to authenticated;
+alter default privileges in schema public grant all on tables to authenticated, anon;  -- as on Supabase: RLS decides
 alter default privileges in schema public grant all on sequences to authenticated;
 SQL
 }

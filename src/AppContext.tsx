@@ -28,6 +28,10 @@ interface AppState {
   /** Rooms I muted for myself (moved down in the sidebar, no unread count). */
   mutedRooms: Set<number>;
   toggleRoomMute: (roomId: number) => Promise<void>;
+  /** While an admin keeps guest view open: until when visitors may read without logging in. */
+  guestUntil: string | null;
+  /** Not logged in and reading through the temporary guest view. */
+  isGuest: boolean;
   recovering: boolean;
   endRecovery: () => void;
   nameOf: (id: string | null | undefined) => string;
@@ -58,6 +62,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [ownerId, setOwnerId] = useState<string | null>(null);
   const [myMute, setMyMute] = useState<{ until: string; reason: string | null } | null>(null);
   const [mutedRooms, setMutedRooms] = useState<Set<number>>(new Set());
+  const [guestUntil, setGuestUntil] = useState<string | null>(null);
   const meRef = useRef<Profile | null>(null);
   const convRef = useRef(conversations);
   convRef.current = conversations;
@@ -116,6 +121,41 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [uid, reloadMe]);
 
   const active = me?.status === 'active';
+
+  // Guest view: is the site open for reading without logging in? (re-checked every minute, it closes by itself)
+  const checkGuest = useCallback(async () => {
+    const { data } = await supabase.rpc('guest_view_until');
+    setGuestUntil((data as string | null) ?? null);
+  }, []);
+  useEffect(() => {
+    checkGuest();
+    const t = setInterval(checkGuest, 60000);
+    return () => clearInterval(t);
+  }, [checkGuest, uid]);
+  const isGuest = !uid && !!guestUntil;
+
+  const reloadGuestRooms = useCallback(async () => {
+    const { data } = await supabase.from('channels').select('id, name, description, is_main, admin_only_post, created_by, last_message_at, position')
+      .order('is_main', { ascending: false }).order('position').order('last_message_at', { ascending: false });
+    setRooms(((data as Room[] | null) ?? []).map((r) => ({ ...r, unread: 0, last_body: null, last_author: null, last_anonymous: null })));
+  }, []);
+
+  // Visitors: names and rooms, kept fresh while they read.
+  useEffect(() => {
+    if (!isGuest) return;
+    reloadProfiles();
+    reloadGuestRooms();
+    const unsub = subscribe('guest', (ch) =>
+      ch
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => reloadProfiles())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'channels' }, () => reloadGuestRooms()),
+    );
+    return () => {
+      unsub();
+      setRooms([]);
+      setProfiles(new Map());
+    };
+  }, [isGuest, reloadProfiles, reloadGuestRooms]);
 
   // Shared data once approved, kept fresh via realtime. Room list refreshes are debounced
   // because every message in any room touches it.
@@ -246,6 +286,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       myMute,
       mutedRooms,
       toggleRoomMute,
+      guestUntil,
+      isGuest,
       recovering,
       endRecovery: () => setRecovering(false),
       nameOf,
@@ -254,7 +296,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       reloadRooms,
       reloadConversations,
     }),
-    [session, loading, me, profiles, rooms, schemaOutdated, conversations, online, active, ownerId, myMute, mutedRooms, toggleRoomMute, recovering, nameOf, reloadMe, reloadProfiles, reloadRooms, reloadConversations],
+    [session, loading, me, profiles, rooms, schemaOutdated, conversations, online, active, ownerId, myMute, mutedRooms, toggleRoomMute, guestUntil, isGuest, recovering, nameOf, reloadMe, reloadProfiles, reloadRooms, reloadConversations],
   );
 
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;

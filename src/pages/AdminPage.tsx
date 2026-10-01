@@ -15,12 +15,13 @@ import RosterAdmin from '../components/RosterAdmin';
 import OwnerTools from '../components/OwnerTools';
 import FeedbackAdmin from '../components/FeedbackAdmin';
 import AdminStats from '../components/AdminStats';
+import GuestViewAdmin from '../components/GuestViewAdmin';
 
-type Tab = 'members' | 'preapproved' | 'anonymous' | 'rooms' | 'media' | 'owner' | 'feedback' | 'stats';
+type Tab = 'members' | 'preapproved' | 'anonymous' | 'rooms' | 'media' | 'owner' | 'feedback' | 'stats' | 'guest';
 type ProfilePatch = Partial<Pick<Profile, 'status' | 'role' | 'accept_anonymous' | 'can_send_anonymous' | 'join_seen'>>;
 
 export default function AdminPage() {
-  const { profiles, rooms, me, reloadProfiles, reloadRooms, nameOf, isOwner, ownerId } = useApp();
+  const { profiles, rooms, me, reloadProfiles, reloadRooms, nameOf, isOwner, ownerId, guestUntil } = useApp();
   const showOwnerTab = isOwner || !ownerId;
   const { confirm, toast } = useFeedback();
   const openCard = useProfileCard();
@@ -116,6 +117,10 @@ export default function AdminPage() {
           </button>
           <button className={tab === 'preapproved' ? 'on' : ''} onClick={() => setTab('preapproved')} role="tab">
             <Icon name="check" size={20} /> אישור מראש
+          </button>
+          <button className={tab === 'guest' ? 'on' : ''} onClick={() => setTab('guest')} role="tab">
+            <Icon name="visibility" size={20} /> צפייה ללא התחברות
+            {guestUntil && <span className="badge-count">פתוח</span>}
           </button>
           <button className={tab === 'stats' ? 'on' : ''} onClick={() => setTab('stats')} role="tab">
             <Icon name="bar_chart" size={20} /> סטטיסטיקה
@@ -297,6 +302,7 @@ export default function AdminPage() {
         {tab === 'feedback' && <FeedbackAdmin />}
 
         {tab === 'stats' && <AdminStats />}
+        {tab === 'guest' && <GuestViewAdmin />}
 
         {tab === 'preapproved' && (
           <>

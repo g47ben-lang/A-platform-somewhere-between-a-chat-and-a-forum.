@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useParams } from 'react-router-dom';
 import { useApp } from './AppContext';
 import { isConfigured, supabase, SITE_NAME } from './supabase';
@@ -19,9 +19,12 @@ import EventsPage from './pages/EventsPage';
 import FunPage from './pages/FunPage';
 import ModerationPage from './pages/ModerationPage';
 import TermsGate from './pages/TermsGate';
+import GuestPage from './pages/GuestPage';
 
 export default function App() {
-  const { session, loading, me, isAdmin, recovering, schemaOutdated } = useApp();
+  const { session, loading, me, isAdmin, recovering, schemaOutdated, isGuest } = useApp();
+  // Guest view: visitors start in the read-only chat and may switch to the login screen and back.
+  const [wantLogin, setWantLogin] = useState(false);
 
   if (!isConfigured) {
     return (
@@ -35,7 +38,10 @@ export default function App() {
   }
 
   if (loading) return <div className="auth-screen"><div className="spinner" /></div>;
-  if (!session) return <AuthPage />;
+  if (!session) {
+    if (isGuest && !wantLogin) return <GuestPage onLogin={() => setWantLogin(true)} />;
+    return <AuthPage onGuest={isGuest ? () => setWantLogin(false) : undefined} />;
+  }
   if (recovering) return <NewPasswordPage />;
 
   if (!me || me.status !== 'active') {

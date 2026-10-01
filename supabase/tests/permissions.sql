@@ -703,6 +703,47 @@ select pg_temp.denied($$select send_dm(1, 'x')$$, 'banned user cannot send DMs')
 select pg_temp.check((select count(*) = 0 from my_rooms()), 'banned user gets no rooms');
 reset role;
 
+-- ===== Guest view (read-only without logging in) =====
+create or replace function pg_temp.as_anon() returns void language plpgsql as $$
+begin
+  perform set_config('request.jwt.claim.sub', '', false);
+  execute 'set role anon';
+end $$;
+select pg_temp.as_anon();
+select pg_temp.check((select count(*) = 0 from messages) and (select count(*) = 0 from channels) and (select count(*) = 0 from profiles), 'visitor sees nothing while guest view is closed');
+select pg_temp.check(guest_view_until() is null, 'guest view closed by default');
+select pg_temp.denied($$select set_guest_view(48)$$, 'visitor cannot open guest view');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select pg_temp.denied($$select set_guest_view(48)$$, 'member cannot open guest view');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000e0');
+select pg_temp.check(set_guest_view(48) > now() + interval '47 hours', 'admin opens guest view for two days');
+select pg_temp.denied($$select set_guest_view(10000)$$, 'guest view is limited to 30 days');
+reset role;
+select pg_temp.as_anon();
+select pg_temp.check(guest_view_until() is not null, 'visitor learns guest view is open');
+select pg_temp.check((select count(*) > 0 from messages) and (select count(*) > 0 from channels), 'visitor reads rooms and messages while open');
+select pg_temp.check((select count(*) > 0 from profiles) and (select bool_and(status = 'active') from profiles), 'visitor sees only active members');
+select pg_temp.check((select count(*) = 0 from dm_messages) and (select count(*) = 0 from dm_conversations) and (select count(*) = 0 from anon_authors)
+  and (select count(*) = 0 from polls) and (select count(*) = 0 from confessions) and (select count(*) = 0 from events) and (select count(*) = 0 from site_settings), 'visitor never sees private chats, anonymous authors or other content');
+select pg_temp.denied($$select send_message((select id from channels where is_main), 'x')$$, 'visitor cannot post');
+select pg_temp.denied($$insert into reactions (message_id, user_id, emoji) values ((select min(id) from messages), '00000000-0000-0000-0000-00000000000d', '👍')$$, 'visitor cannot react');
+update messages set body = 'hack' where id = (select min(id) from messages);
+delete from messages;
+select pg_temp.check((select count(*) = 0 from messages where body = 'hack') and (select count(*) > 0 from messages), 'visitor cannot edit or delete messages');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000e0');
+select pg_temp.check(set_guest_view(0) is null, 'admin closes guest view');
+reset role;
+select pg_temp.as_anon();
+select pg_temp.check((select count(*) = 0 from messages) and guest_view_until() is null, 'visitor sees nothing again after closing');
+reset role;
+update site_settings set guest_view_until = now() - interval '1 minute';
+select pg_temp.as_anon();
+select pg_temp.check((select count(*) = 0 from messages), 'guest view closes by itself when the time is up');
+reset role;
+
 -- ===== Reset (last: wipes everything) =====
 update auth.users set encrypted_password = extensions.crypt('owner-pass', extensions.gen_salt('bf', 4)) where id = '00000000-0000-0000-0000-0000000000e0';
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000e0');
