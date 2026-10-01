@@ -2946,6 +2946,33 @@ alter table bot_prompt_rules enable row level security;
 drop policy if exists bot_prompt_rules_owner on bot_prompt_rules;
 create policy bot_prompt_rules_owner on bot_prompt_rules for select using (is_owner());
 
+-- The owner's Claude (Anthropic API) key, used only for "אישור ותיקון אוטומטי" (better fixes than Gemini; falls
+-- back to Gemini when missing or failing). Kept in site_settings (no policies): only the Edge Function reads it.
+alter table site_settings add column if not exists anthropic_key text;
+alter table site_settings add column if not exists anthropic_error text;
+alter table site_settings add column if not exists anthropic_used_at timestamptz;
+
+create or replace function ai_claude_key_set(p_key text) returns void
+language plpgsql security definer set search_path = public as $$
+declare k text := nullif(trim(coalesce(p_key, '')), '');
+begin
+  if not is_owner() then raise exception 'רק מנהל-העל' using errcode = '42501'; end if;
+  if k is not null and (k not like 'sk-ant-%' or char_length(k) not between 20 and 300) then
+    raise exception 'זה לא נראה כמו מפתח של Claude (מתחיל ב-sk-ant-)';
+  end if;
+  insert into site_settings (id) values (1) on conflict (id) do nothing;
+  update site_settings set anthropic_key = k, anthropic_error = null where id = 1;
+end $$;
+
+create or replace function ai_claude_key_status(out has_key boolean, out masked text, out last_error text, out used_at timestamptz)
+language sql stable security definer set search_path = public as $$
+  select anthropic_key is not null, case when anthropic_key is null then null else left(anthropic_key, 10) || '…' || right(anthropic_key, 4) end,
+         anthropic_error, anthropic_used_at
+    from site_settings where id = 1 and is_owner();
+$$;
+revoke execute on function ai_claude_key_set(text), ai_claude_key_status() from anon, public;
+grant execute on function ai_claude_key_set(text), ai_claude_key_status() to authenticated;
+
 create or replace function bot_rule_set(p_id bigint, p_active boolean) returns void
 language plpgsql security definer set search_path = public as $$
 begin

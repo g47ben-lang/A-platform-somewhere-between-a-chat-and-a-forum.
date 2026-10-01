@@ -19,6 +19,7 @@ import GuestViewAdmin from '../components/GuestViewAdmin';
 import AiKeysAdmin from '../components/AiKeysAdmin';
 import SenderReports from '../components/SenderReports';
 import MemberKeysAdmin from '../components/MemberKeys';
+import ClaudeKeyAdmin from '../components/ClaudeKeyAdmin';
 
 type Tab = 'members' | 'preapproved' | 'anonymous' | 'rooms' | 'media' | 'owner' | 'feedback' | 'stats' | 'guest' | 'ai' | 'sender';
 type ProfilePatch = Partial<Pick<Profile, 'status' | 'role' | 'accept_anonymous' | 'can_send_anonymous' | 'join_seen'>>;
@@ -338,7 +339,7 @@ export default function AdminPage() {
 
         {tab === 'stats' && <AdminStats />}
         {tab === 'guest' && isOwner && <GuestViewAdmin />}
-        {tab === 'ai' && isOwner && <><AiKeysAdmin /><MemberKeysAdmin /></>}
+        {tab === 'ai' && isOwner && <><AiKeysAdmin /><ClaudeKeyAdmin /><MemberKeysAdmin /></>}
         {tab === 'sender' && isOwner && <SenderReports />}
 
         {tab === 'preapproved' && (

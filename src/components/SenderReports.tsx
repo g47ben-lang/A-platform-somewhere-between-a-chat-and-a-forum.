@@ -97,9 +97,9 @@ export default function SenderReports() {
     setFixing(c.id);
     const { data, error } = await supabase.functions.invoke('bot', { body: { mode: 'improve', complaint_id: c.id } });
     setFixing(null);
-    const r = data as { rule?: string; error?: string } | null;
+    const r = data as { rule?: string; by?: string; error?: string } | null;
     if (error || !r?.rule) return toast(r?.error ?? 'התיקון האוטומטי לא הצליח. נסה שוב עוד מעט.', 'error');
-    toast(`נוסף תיקון: ${r.rule}`);
+    toast(`נוסף תיקון${r.by ? ` (${r.by})` : ''}: ${r.rule}`);
     load();
   }
 

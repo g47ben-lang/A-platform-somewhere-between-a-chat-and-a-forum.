@@ -10,6 +10,7 @@
 //              3 strikes = a quarter of an hour block (bot_mark), so free keys aren't spent on nonsense.
 // mode "gag":  writes a news-flash (מבזק) for the news-flash maker.
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
+import Anthropic from 'npm:@anthropic-ai/sdk';
 
 const BOT_NAME = 'בוט';
 const cors = {
@@ -389,16 +390,53 @@ async function improve(db: SupabaseClient, ownerId: string, complaintId: number)
 אל תחזור על כלל שכבר קיים. כללים קיימים:
 ${((existing ?? []) as { rule: string }[]).map((r) => `- ${r.rule}`).join('\n') || '(אין)'}`;
   const prompt = `התלונה: ${c.complaint}\nמה הבוט ענה: ${c.quote || '(לא צוין)'}\nהצעת השיפור של הבוט: ${c.suggestion || '(אין)'}`;
-  const out = await gemini(db, ownerId, system, [{ role: 'user', parts: [{ text: prompt }] }], {
-    type: 'OBJECT',
-    properties: { rule: { type: 'STRING' } },
-    required: ['rule'],
-  });
-  const rule = String(out?.rule ?? '').trim().slice(0, 600);
+  // Claude first (the owner's key, if set); Gemini when there is no key or Claude fails.
+  let rule = (await claudeRule(db, system, prompt)) ?? '';
+  let by = 'Claude';
+  if (!rule) {
+    const out = await gemini(db, ownerId, system, [{ role: 'user', parts: [{ text: prompt }] }], {
+      type: 'OBJECT',
+      properties: { rule: { type: 'STRING' } },
+      required: ['rule'],
+    });
+    rule = String(out?.rule ?? '').trim().slice(0, 600);
+    by = 'Gemini';
+  }
   if (!rule) return { error: 'Gemini לא החזיר תיקון (אולי נגמרה המכסה). נסה שוב עוד מעט.' };
   const { data: row } = await db.from('bot_prompt_rules').insert({ rule, complaint_id: c.id }).select('id').single();
   await db.from('bot_complaints').update({ handled_at: new Date().toISOString(), rule_id: row?.id ?? null }).eq('id', c.id);
-  return { rule };
+  return { rule, by };
+}
+
+// The rule written by Claude through the owner's Anthropic key (site_settings.anthropic_key). Null on no key / failure.
+async function claudeRule(db: SupabaseClient, system: string, prompt: string): Promise<string | null> {
+  const { data: cfg } = await db.from('site_settings').select('anthropic_key').eq('id', 1).maybeSingle();
+  const apiKey = cfg?.anthropic_key as string | null | undefined;
+  if (!apiKey) return null;
+  try {
+    const client = new Anthropic({ apiKey });
+    const response = await client.beta.messages.create({
+      model: 'claude-opus-5-5',
+      max_tokens: 2000,
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+      system,
+      messages: [{ role: 'user', content: prompt }],
+      output_config: {
+        effort: 'medium',
+        format: { type: 'json_schema', schema: { type: 'object', properties: { rule: { type: 'string' } }, required: ['rule'], additionalProperties: false } },
+      },
+    } as unknown as Anthropic.Beta.MessageCreateParamsNonStreaming);
+    if (response.stop_reason === 'refusal') throw new Error('Claude declined');
+    const text = response.content.map((b) => (b.type === 'text' ? b.text : '')).join('');
+    const rule = String((JSON.parse(text) as { rule?: string }).rule ?? '').trim().slice(0, 600);
+    await db.from('site_settings').update({ anthropic_used_at: new Date().toISOString(), anthropic_error: null }).eq('id', 1);
+    return rule || null;
+  } catch (e) {
+    const msg = e instanceof Anthropic.APIError ? `${e.status}: ${e.message}` : String((e as Error).message ?? e);
+    await db.from('site_settings').update({ anthropic_error: msg.slice(0, 300) }).eq('id', 1);
+    return null;
+  }
 }
 
 // ---------- News flash (מבזק) ----------
