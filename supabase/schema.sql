@@ -2893,6 +2893,27 @@ language sql stable security definer set search_path = public as $$
   select count(*)::int from bot_alerts where seen_at is null and is_owner();
 $$;
 
+-- Complaints about סנדר ("יש לי תלונה עליך", or why someone got annoyed with him): written by the Edge Function,
+-- read by the owner, who copies the open ones to improve the bot and marks them handled.
+create table if not exists bot_complaints (
+  id          bigint generated always as identity primary key,
+  user_id     uuid not null references profiles on delete cascade,
+  complaint   text not null check (char_length(complaint) between 1 and 1000),
+  quote       text not null default '' check (char_length(quote) <= 1000),
+  created_at  timestamptz not null default now(),
+  handled_at  timestamptz
+);
+alter table bot_complaints enable row level security;
+drop policy if exists bot_complaints_owner on bot_complaints;
+create policy bot_complaints_owner on bot_complaints for select using (is_owner());
+
+create or replace function bot_complaints_handled(p_ids bigint[]) returns void
+language sql security definer set search_path = public as $$
+  update bot_complaints set handled_at = now() where id = any(p_ids) and handled_at is null and is_owner();
+$$;
+revoke execute on function bot_complaints_handled(bigint[]) from anon, public;
+grant execute on function bot_complaints_handled(bigint[]) to authenticated;
+
 -- Owner: who talks to סנדר, how much, strikes and blocks (to pick conversations to look at).
 create or replace function bot_overview()
 returns table (user_id uuid, messages int, last_at timestamptz, strikes int, blocked_until timestamptz, alerts int)

@@ -6,6 +6,7 @@ import { BOT_NAME } from '../pages/BotPage';
 import Avatar from './Avatar';
 import { Modal } from './Feedback';
 import Icon from './Icon';
+import { useFeedback } from './Feedback';
 
 interface Alert {
   id: number;
@@ -15,6 +16,14 @@ interface Alert {
   excerpt: string;
   created_at: string;
   seen_at: string | null;
+}
+interface Complaint {
+  id: number;
+  user_id: string;
+  complaint: string;
+  quote: string;
+  created_at: string;
+  handled_at: string | null;
 }
 interface Overview {
   user_id: string;
@@ -39,12 +48,16 @@ export default function SenderReports() {
   const [alerts, setAlerts] = useState<Alert[] | null>(null);
   const [overview, setOverview] = useState<Overview[]>([]);
   const [open, setOpen] = useState<{ userId: string; highlight?: number | null } | null>(null);
+  const [complaints, setComplaints] = useState<Complaint[]>([]);
+  const { toast } = useFeedback();
 
   const load = useCallback(async () => {
-    const [a, o] = await Promise.all([
+    const [a, o, c] = await Promise.all([
       supabase.from('bot_alerts').select('*').order('id', { ascending: false }).limit(100),
       supabase.rpc('bot_overview'),
+      supabase.from('bot_complaints').select('*').is('handled_at', null).order('id'),
     ]);
+    setComplaints((c.data as Complaint[]) ?? []);
     setAlerts((a.data as Alert[]) ?? []);
     setOverview((o.data as Overview[]) ?? []);
   }, []);
@@ -59,6 +72,20 @@ export default function SenderReports() {
     load();
   }
 
+  // All open complaints as one text, to paste to whoever improves סנדר.
+  async function copyComplaints() {
+    const text = [`תלונות על ${BOT_NAME} (${complaints.length}):`, '']
+      .concat(complaints.map((c, i) => `${i + 1}. ${fullDate(c.created_at)}\nהתלונה: ${c.complaint}${c.quote ? `\nמה ${BOT_NAME} ענה: "${c.quote}"` : ''}\n`))
+      .join('\n');
+    await navigator.clipboard.writeText(text);
+    toast('כל התלונות הפתוחות הועתקו. אפשר להדביק אותן ולשלוח.');
+  }
+
+  async function markHandled() {
+    await supabase.rpc('bot_complaints_handled', { p_ids: complaints.map((c) => c.id) });
+    load();
+  }
+
   function sample() {
     if (!overview.length) return;
     setOpen({ userId: overview[Math.floor(Math.random() * overview.length)].user_id });
@@ -68,6 +95,39 @@ export default function SenderReports() {
 
   return (
     <>
+      <section className="card-section">
+        <div className="section-head">
+          <h2>תלונות על {BOT_NAME} ({complaints.length})</h2>
+          {complaints.length > 0 && (
+            <div className="row gap">
+              <button className="btn tonal small" onClick={copyComplaints}><Icon name="content_copy" size={18} /> העתקת כל התלונות</button>
+              <button className="btn text small" onClick={markHandled}>סימון כטופלו</button>
+            </div>
+          )}
+        </div>
+        <p className="muted small">
+          כשחבר כותב לסנדר "יש לי תלונה עליך" או מתעצבן עליו, סנדר שואל מה הפריע ורושם את זה כאן, עם התשובה שהפריעה. מדי פעם מעתיקים את
+          כולן, שולחים לתיקון ומסמנים כטופלו.
+        </p>
+        {complaints.length === 0 ? (
+          <div className="empty-inline small"><Icon name="check" /><span>אין תלונות פתוחות.</span></div>
+        ) : (
+          <ul className="list">
+            {complaints.map((c) => (
+              <li key={c.id}>
+                <button className="list-row" onClick={() => setOpen({ userId: c.user_id })}>
+                  <div className="list-main">
+                    <div className="list-title">{nameOf(c.user_id)}: {c.complaint}</div>
+                    {c.quote && <div className="list-sub">{BOT_NAME} ענה: "{c.quote}"</div>}
+                  </div>
+                  <span className="muted small" title={fullDate(c.created_at)}>{timeAgo(c.created_at)}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
       <section className="card-section">
         <div className="section-head">
           <h2>{BOT_NAME} מדווח ({unseen} חדשים)</h2>

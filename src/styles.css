@@ -1388,3 +1388,4 @@ button.author:hover, .title-link:hover { text-decoration: underline; }
 .key-controls { display: flex; flex-direction: column; gap: 4px; }
 .member-key-row { align-items: flex-start; }
 .member-key-card h2 { display: inline-flex; align-items: center; gap: 6px; }
+.bot-tip { font-size: 11px; color: var(--muted); padding: 0 8px 4px; }

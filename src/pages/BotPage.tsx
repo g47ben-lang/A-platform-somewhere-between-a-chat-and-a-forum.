@@ -146,6 +146,8 @@ export default function BotPage() {
                   <p className="muted">
                     שואלים אותו מה הנייעס, מה חבר כתב בצ'אט, מבקשים שיעביר שאלה לחבר ("תשאל את... אם...") או סתם פאנץ'.
                     הוא מדבר רק על הצ'אט והוועד. מי שמבזבז לו את הזמן נחסם לרבע שעה.
+                    <br />
+                    טיפ: קיבלת תשובה מוזרה או בעייתית? כתוב לו "יש לי תלונה עליך" והתלונה תגיע להנהלה.
                   </p>
                 </div>
               )}
@@ -182,6 +184,7 @@ export default function BotPage() {
         </div>
       </div>
       <div className="composer-wrap">
+        {!mustAddKey && !blocked && <p className="bot-tip">תשובה בעייתית? כתוב לסנדר "יש לי תלונה עליך".</p>}
         {mustAddKey && !blocked ? (
           <KeyGuide onSaved={() => { setNeedKey(false); reloadQuota(); }} />
         ) : blocked ? (

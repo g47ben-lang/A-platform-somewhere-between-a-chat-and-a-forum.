@@ -801,6 +801,16 @@ select pg_temp.as_user('00000000-0000-0000-0000-0000000000e0');
 select pg_temp.check(bot_alert_count() = 1 and (select count(*) = 1 from bot_alerts), 'owner sees the report');
 select pg_temp.check((select count(*) >= 1 from bot_overview()) and (select count(*) > 0 from bot_messages where user_id = '00000000-0000-0000-0000-00000000000d'), 'owner can sample conversations');
 select bot_alerts_seen(array(select id from bot_alerts));
+reset role;
+insert into bot_complaints (user_id, complaint, quote) values ('00000000-0000-0000-0000-00000000000d', 'הטיף לי מוסר', 'אני רק בוט עם עקרונות');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select pg_temp.check((select count(*) = 0 from bot_complaints), 'members cannot read complaints, not even their own');
+select pg_temp.denied($$insert into bot_complaints (user_id, complaint) values (auth.uid(), 'x')$$, 'members cannot write complaints directly');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000e0');
+select pg_temp.check((select count(*) = 1 from bot_complaints where handled_at is null), 'owner sees complaints about סנדר');
+select bot_complaints_handled(array(select id from bot_complaints));
+select pg_temp.check((select count(*) = 0 from bot_complaints where handled_at is null), 'owner marks complaints handled');
 select pg_temp.check(bot_alert_count() = 0, 'owner marks reports as seen');
 reset role;
 

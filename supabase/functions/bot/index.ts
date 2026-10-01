@@ -168,8 +168,15 @@ async function chat(db: SupabaseClient, me: Profile): Promise<Json> {
     .map((m) => `${m.anonymous || !m.author_id ? 'אנונימי' : nameOf(m.author_id)}: ${m.body.slice(0, 200)}`)
     .join('\n');
 
-  const system = `אתה "${BOT_NAME}", הבוט של קהילת ועד קמ"ד ישיבת חברון: צ'אט סגור של בחורי ישיבה. אתה מדבר בעברית, בלשון זכר, בסגנון של בחור ישיבה חביב ושנון, עם פאנצ'ים, בקצרה (עד 4 משפטים בדרך כלל).
+  // Messages passed on to this member from friends (they may be older than the history window).
+  const { data: rel } = await db.from('bot_messages').select('body, from_id').eq('user_id', me.id).not('from_id', 'is', null).order('id', { ascending: false }).limit(8);
+  const relayed = ((rel ?? []) as { body: string; from_id: string }[]).reverse().map((r) => `- (מאת ${nameOf(r.from_id)}) ${r.body.slice(0, 300)}`).join('\n');
+
+  const system = `אתה "${BOT_NAME}", הבוט של קהילת ועד קמ"ד ישיבת חברון: צ'אט סגור של בחורי ישיבה. אתה מדבר בעברית, בלשון זכר, כמו חבר'ה: זורם, שנון, עם פאנצ'ים והומור עצמי, בקצרה (עד 4 משפטים בדרך כלל).
 אתה מדבר עכשיו עם ${me.display_name}. השיחה פרטית ביניכם.
+
+סגנון: אתה לא מטיף ולא מדבר על "עקרונות", "כללים" או "אני רק בוט". כשמבקשים ממך מתיחה, תיאוריה מטורפת או צחוקים - תזרום ותשחק איתם, כל עוד ברור שזה בצחוק. כשמשהו באמת לא מתאים, תתחמק במשפט אחד עם הומור ותמשיך הלאה, בלי הרצאות.
+מותר להמציא שטויות ותיאוריות שברור שהן בדיחה; אסור להציג המצאה על חבר אמיתי כאילו היא עובדה.
 
 אתה מדבר רק על מה שקשור לצ'אט ולוועד: מה קורה בצ'אט, החברים, החיים בוועד ובישיבה, סקרים, אירועים, פאנצ'ים על הוועד.
 שאלות שלא קשורות (ידע כללי, שיעורי בית, קוד, חדשות העולם וכו') - תענה במשפט קצר שאתה רק על הוועד והצ'אט, ושלשאר יש את ג'מיני הרגיל. verdict = "off_topic".
@@ -192,7 +199,10 @@ ${(knowledge ?? 0) < 5 ? 'אתה עוד חדש בוועד ויודע מעט. כ�
 
 כשהמשתמש מספר לך משהו על חבר אחר (לא על עצמו), תוסיף אותו ל-claims: about = השם המדויק מרשימת החברים, claim = ניסוח קצר וניטרלי. תגיד לו שתשאל את החבר אם מותר לספר.
 לא שומרים ולא מעבירים דברים שמביישים, מעליבים או עלולים לפגוע: בריאות, משפחה, כסף, שידוכים, עבירות, מראה חיצוני. על אלה תסרב בחביבות.
-כשהמשתמש מבקש שתעביר הודעה או שאלה לחבר ("תשאל את X אם..."), תוסיף ל-relays: to = השם המדויק, text = ניסוח מנומס בגוף שלישי. לא מעבירים עלבונות או לחץ. אם זה נשמע כמו ניסיון להשלים, תעודד בעדינות.
+כשהמשתמש מבקש שתעביר הודעה, שאלה או מתיחה לחבר ("תשאל את X אם...", "תגיד לX ש..."), תוסיף ל-relays: to = השם המדויק, text = ההודעה בגוף שלישי, בסגנון שלך (מותר עקיצה חברית והומור). לא מעבירים עלבון אמיתי, השפלה או לחץ. אם זה נשמע כמו ניסיון להשלים, תעודד בעדינות.
+הודעות שהעברת למשתמש הזה מחברים מופיעות למטה; כשהוא מגיב עליהן, תבין שהוא מתכוון אליהן, ואם הוא רוצה לענות - תעביר את התשובה לשולח (relays).
+
+תלונות: כשהמשתמש אומר "יש לי תלונה עליך", או מתעצבן עליך / אומר שענית לא טוב - בלי להתגונן, תשאל אותו בקצרה מה הפריע לו (אם הוא עוד לא אמר). כשהוא מסביר, תמלא complaint: text = מה הפריע לו במילים שלו, quote = התשובה שלך שהפריעה (אם ברור איזו). תגיד לו תודה ושהעברת את זה למנהל-העל. verdict = "useful".
 אתה אף פעם לא יודע ולא מנחש מי כתב הודעה אנונימית, ולא רואה צ'אטים אישיים.
 שפה נקייה ומכובדת, בלי תוכן לא צנוע. פאנצ'ים על המצב, לא על חשבון אנשים.
 
@@ -200,15 +210,18 @@ ${(knowledge ?? 0) < 5 ? 'אתה עוד חדש בוועד ויודע מעט. כ�
 
 ${dossiers.length ? `מידע על מי שהוזכר:\n${dossiers.join('\n\n')}` : ''}
 
+${relayed ? `הודעות שהעברת ל${me.display_name} מחברים לאחרונה:\n${relayed}` : ''}
+
 מה קורה בצ'אט לאחרונה (מהישן לחדש):
 ${recentChat || '(שקט)'}`;
 
-  // Gemini wants turns that alternate and start with the user.
+  // Gemini wants turns that alternate and start with the user: bot messages that came first (a relay, a consent
+  // question) are kept behind a placeholder user turn instead of being dropped.
   const contents: Json[] = [];
   for (const h of history) {
     const role = h.role === 'user' ? 'user' : 'model';
     const last = contents[contents.length - 1] as { role: string; parts: { text: string }[] } | undefined;
-    if (!last && role === 'model') continue;
+    if (!last && role === 'model') contents.push({ role: 'user', parts: [{ text: '(תחילת השיחה)' }] });
     if (last && last.role === role) last.parts[0].text += `\n${h.body}`;
     else contents.push({ role, parts: [{ text: h.body }] });
   }
@@ -218,6 +231,7 @@ ${recentChat || '(שקט)'}`;
     properties: {
       reply: { type: 'STRING' },
       verdict: { type: 'STRING', enum: ['useful', 'off_topic', 'repetitive'] },
+      complaint: { type: 'OBJECT', properties: { text: { type: 'STRING' }, quote: { type: 'STRING' } } },
       alert: { type: 'OBJECT', properties: { level: { type: 'STRING', enum: ['none', 'odd', 'concern', 'urgent'] }, reason: { type: 'STRING' } }, required: ['level'] },
       claims: { type: 'ARRAY', items: { type: 'OBJECT', properties: { about: { type: 'STRING' }, claim: { type: 'STRING' } }, required: ['about', 'claim'] } },
       relays: { type: 'ARRAY', items: { type: 'OBJECT', properties: { to: { type: 'STRING' }, text: { type: 'STRING' } }, required: ['to', 'text'] } },
@@ -236,6 +250,12 @@ ${recentChat || '(שקט)'}`;
         : 'אני קצת עייף עכשיו (נגמרה המכסה של היום או של הדקה). נסה שוב עוד מעט.',
     });
     return { ok: false };
+  }
+
+  // A complaint about the bot goes to the owner's list (he copies them for fixing).
+  const complaint = out.complaint as { text?: string; quote?: string } | undefined;
+  if (complaint?.text?.trim()) {
+    await db.from('bot_complaints').insert({ user_id: me.id, complaint: complaint.text.trim().slice(0, 1000), quote: (complaint.quote ?? '').slice(0, 1000) });
   }
 
   // Quiet report to the owner about something unusual in the member's last message.
