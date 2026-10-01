@@ -525,13 +525,13 @@ export default function RoomPage() {
                 </span>
               )}
             </div>
+            <div className="hero-flashes">{!heroCollapsed && <FlashStrip inline />}</div>
             {headerTools}
             <button className="icon-btn hero-toggle" onClick={toggleHero} aria-label={heroCollapsed ? 'הרחבת הכותרת' : 'הקטנת הכותרת'} title={heroCollapsed ? 'הרחבה' : 'הקטנה והסתרת המבזקים'}>
               <Icon name={heroCollapsed ? 'keyboard_arrow_down' : 'keyboard_arrow_up'} />
             </button>
             </div>
             {!heroCollapsed && <Highlights />}
-            {!heroCollapsed && <FlashStrip />}
           </header>
         ) : (
           <header className="pane-head">

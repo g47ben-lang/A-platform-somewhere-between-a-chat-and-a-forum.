@@ -45,8 +45,11 @@ interface Row {
   likes: number;
 }
 
-/** All recent news flashes from every room, as a sliding strip of cards (inside the main room's banner). */
-export function FlashStrip() {
+/**
+ * All recent news flashes from every room, as a sliding strip of cards. `inline`: small cards that fit the empty
+ * space in the top row of the main room's blue banner (between the title and the buttons), no heading.
+ */
+export function FlashStrip({ inline }: { inline?: boolean }) {
   const { rooms, nameOf } = useApp();
   const [rows, setRows] = useState<Row[]>([]);
   const track = useRef<HTMLDivElement>(null);
@@ -62,6 +65,24 @@ export function FlashStrip() {
   };
   // RTL: the "next" arrow scrolls toward the end (left).
   const slide = (dir: 1 | -1) => track.current?.scrollBy({ left: -dir * track.current.clientWidth * 0.8, behavior: 'smooth' });
+
+  if (inline) {
+    return (
+      <section className="flash-inline" aria-label="המבזקים">
+        <button className="icon-btn small fi-arrow" onClick={() => slide(-1)} aria-label="הקודמים"><Icon name="chevron_right" size={18} /></button>
+        <div className="fi-track" ref={track}>
+          {rows.map((r) => (
+            <Link key={r.id} to={link(r)} className={`fi-card t-${r.flash.t}`} title={`${r.flash.title}: ${r.flash.text}`}>
+              <strong>{r.flash.t === 'qa' ? 'שו"ת' : r.flash.title || 'מבזק'}</strong>
+              <span>{r.flash.t === 'qa' ? r.flash.title : r.flash.text}</span>
+              <small>{nameOf(r.author_id)} · {timeAgo(r.created_at)}</small>
+            </Link>
+          ))}
+        </div>
+        <button className="icon-btn small fi-arrow" onClick={() => slide(1)} aria-label="הבאים"><Icon name="chevron_left" size={18} /></button>
+      </section>
+    );
+  }
 
   return (
     <section className="flash-strip" aria-label="כל המבזקים">
