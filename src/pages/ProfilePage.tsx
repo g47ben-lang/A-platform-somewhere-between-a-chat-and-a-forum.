@@ -10,6 +10,7 @@ import Avatar from '../components/Avatar';
 import Composer from '../components/Composer';
 import { useFeedback } from '../components/Feedback';
 import Icon from '../components/Icon';
+import { MemberKeyCard } from '../components/MemberKeys';
 import MessageRow from '../components/MessageRow';
 import { startConversation } from '../components/NewChatDialog';
 import Nicknames, { useNicknames } from '../components/Nicknames';
@@ -17,7 +18,7 @@ import { MuteDialog, muteUntilLabel } from '../components/Moderation';
 
 export default function ProfilePage() {
   const userId = useParams().userId!;
-  const { me, profiles, online, canRemove, ownerId, reloadConversations, reloadProfiles, reloadMe } = useApp();
+  const { me, profiles, online, canRemove, ownerId, isOwner, reloadConversations, reloadProfiles, reloadMe } = useApp();
   const [muteOpen, setMuteOpen] = useState(false);
   const [titles, setTitles] = useState<{ first_count: number; last_count: number; first_now: boolean; last_now: boolean } | null>(null);
   const { confirm, toast } = useFeedback();
@@ -197,6 +198,8 @@ export default function ProfilePage() {
         </section>
 
         <Nicknames userId={userId} list={nicks.list} reload={nicks.load} />
+
+        {isOwner && userId !== me?.id && <MemberKeyCard userId={userId} />}
 
         <section className="rep-card">
           <div className="rep-head">

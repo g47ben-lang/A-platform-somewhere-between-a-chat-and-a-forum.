@@ -2618,14 +2618,14 @@ begin
   if not is_owner() then raise exception 'רק מנהל-העל מנהל את מפתחות ה-AI' using errcode = '42501'; end if;
   update ai_keys set enabled = p_enabled, model = coalesce(nullif(trim(p_model), ''), model), daily_limit = p_daily,
                      per_minute = p_minute, cooldown_until = case when p_enabled then null else cooldown_until end
-   where id = p_id and owner_id is null;
+   where id = p_id;
 end $$;
 
 create or replace function ai_key_remove(p_id bigint) returns void
 language plpgsql security definer set search_path = public as $$
 begin
   if not is_owner() then raise exception 'רק מנהל-העל מנהל את מפתחות ה-AI' using errcode = '42501'; end if;
-  delete from ai_keys where id = p_id and owner_id is null;
+  delete from ai_keys where id = p_id;
 end $$;
 
 -- Edge Function only: take the least used key that still has quota (today and this minute) and count the use.
@@ -2690,7 +2690,8 @@ create or replace function bot_free_daily() returns int language sql immutable a
 alter table bot_state add column if not exists free_day date;
 alter table bot_state add column if not exists free_used int not null default 0;
 
--- A member saves his own Google AI Studio key (replaces an earlier one). Nobody can read it back, not even the owner.
+-- A member saves his own Google AI Studio key (replaces an earlier one). Members can't read keys; the owner can
+-- (to help members), and members are told so in the guide.
 create or replace function ai_my_key_set(p_key text) returns void
 language plpgsql security definer set search_path = public as $$
 begin
@@ -2705,6 +2706,48 @@ create or replace function ai_my_key_remove() returns void
 language sql security definer set search_path = public as $$
   delete from ai_keys where owner_id = auth.uid();
 $$;
+
+-- Owner's control panel for members' own keys (people ask him for help): every member who has a key or used
+-- the bot, his key's state, and free messages used today. The owner may reveal, set, switch off or remove a key.
+create or replace function ai_member_keys()
+returns table (user_id uuid, key_id bigint, masked text, enabled boolean, used_today int, daily_limit int,
+               cooldown_until timestamptz, last_error text, last_used_at timestamptz, free_used int)
+language sql stable security definer set search_path = public as $$
+  select p.id, k.id, left(k.api_key, 4) || '…' || right(k.api_key, 4), k.enabled,
+         case when k.used_day = ai_quota_day() then k.used_today else 0 end, k.daily_limit, k.cooldown_until, k.last_error,
+         k.last_used_at,
+         case when s.free_day = (now() at time zone 'Asia/Jerusalem')::date then s.free_used else 0 end
+    from profiles p
+    left join ai_keys k on k.owner_id = p.id
+    left join bot_state s on s.user_id = p.id
+   where is_owner() and (k.id is not null or s.user_id is not null)
+   order by k.id is null, p.display_name;
+$$;
+
+create or replace function ai_member_key_reveal(p_user uuid) returns text
+language sql stable security definer set search_path = public as $$
+  select api_key from ai_keys where owner_id = p_user and is_owner() limit 1;
+$$;
+
+create or replace function ai_member_key_set(p_user uuid, p_key text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not is_owner() then raise exception 'רק מנהל-העל מנהל את מפתחות ה-AI' using errcode = '42501'; end if;
+  if char_length(trim(coalesce(p_key, ''))) not between 20 and 200 then raise exception 'זה לא נראה כמו מפתח'; end if;
+  if not exists (select 1 from profiles where id = p_user) then raise exception 'החבר לא נמצא'; end if;
+  delete from ai_keys where owner_id = p_user;
+  insert into ai_keys (label, api_key, owner_id, daily_limit, per_minute) values ('אישי', trim(p_key), p_user, 200, 8);
+end $$;
+
+create or replace function ai_member_key_remove(p_user uuid) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not is_owner() then raise exception 'רק מנהל-העל מנהל את מפתחות ה-AI' using errcode = '42501'; end if;
+  delete from ai_keys where owner_id = p_user;
+end $$;
+
+revoke execute on function ai_member_keys(), ai_member_key_reveal(uuid), ai_member_key_set(uuid, text), ai_member_key_remove(uuid) from anon, public;
+grant execute on function ai_member_keys(), ai_member_key_reveal(uuid), ai_member_key_set(uuid, text), ai_member_key_remove(uuid) to authenticated;
 
 -- My standing with the bot: free messages left today, and my own key (masked, usage, last error).
 create or replace function bot_my_quota(out free_left int, out has_key boolean, out masked text, out used_today int,

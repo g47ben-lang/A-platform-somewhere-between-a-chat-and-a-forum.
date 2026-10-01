@@ -756,10 +756,17 @@ select pg_temp.check((select count(*) = 0 from bot_messages), 'another member ca
 reset role;
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
 select pg_temp.denied($$select ai_key_add('x', 'AIzaSyFAKEFAKEFAKE')$$, 'a regular admin cannot add AI keys (owner only)');
+select pg_temp.check((select count(*) = 0 from ai_member_keys()) and ai_member_key_reveal('00000000-0000-0000-0000-00000000000d') is null, 'a regular admin cannot see members'' keys');
+select pg_temp.denied($$select ai_member_key_set('00000000-0000-0000-0000-00000000000d', 'AIzaHIJACKHIJACKHIJACK01')$$, 'a regular admin cannot set members'' keys');
 reset role;
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000e0');
 select ai_key_add('ראשי', 'AIzaSyFAKEFAKEFAKE1234', null, 100, 2);
 select pg_temp.check((select masked = 'AIza…1234' and model = 'gemini-3.8-flash' from ai_key_list()), 'owner sees keys masked');
+select pg_temp.check((select count(*) >= 1 from ai_member_keys() where key_id is not null), 'owner sees members'' keys in his panel');
+select pg_temp.check(ai_member_key_reveal('00000000-0000-0000-0000-00000000000d') = 'AIzaMEMBERKEYMEMBERKEY0001', 'owner can reveal a member''s key');
+select ai_member_key_set('00000000-0000-0000-0000-00000000000b', 'AIzaHELPEDBYOWNER00000002');
+select pg_temp.check((select masked = 'AIza…0002' from ai_member_keys() where user_id = '00000000-0000-0000-0000-00000000000b'), 'owner sets a key for a member');
+select ai_member_key_remove('00000000-0000-0000-0000-00000000000b');
 reset role;
 -- the Edge Function (service role) takes keys within the per-minute limit
 update bot_state set blocked_until = now() - interval '1 minute';

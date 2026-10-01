@@ -1384,3 +1384,7 @@ button.author:hover, .title-link:hover { text-decoration: underline; }
 .key-guide ol { padding-inline-start: 20px; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
 .key-guide input { height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--outline); background: var(--surface); color: var(--text); }
 .pane-head .chip-btn { margin-inline-start: auto; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.search-input { width: 100%; height: 40px; padding: 0 12px; margin: 8px 0; border-radius: 12px; border: 1px solid var(--outline); background: var(--surface); color: var(--text); }
+.key-controls { display: flex; flex-direction: column; gap: 4px; }
+.member-key-row { align-items: flex-start; }
+.member-key-card h2 { display: inline-flex; align-items: center; gap: 6px; }
