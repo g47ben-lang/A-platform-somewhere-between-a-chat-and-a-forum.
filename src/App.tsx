@@ -84,7 +84,7 @@ export default function App() {
         <Route path="contact" element={<ContactPage />} />
         <Route path="events" element={<EventsPage />} />
         <Route path="more" element={<FunPage />} />
-        <Route path="moderation" element={<ModerationPage />} />
+        <Route path="moderation" element={isAdmin ? <ModerationPage /> : <Navigate to="/" />} />
         <Route path="fun" element={<Navigate to="/more" replace />} />
         <Route path="search" element={<SearchPage />} />
         <Route path="admin" element={isAdmin ? <AdminPage /> : <Navigate to="/" />} />

@@ -16,7 +16,7 @@ export function useConversationTitle() {
 }
 
 export default function Layout() {
-  const { me, rooms, mainRoom, conversations, online, isAdmin, profiles, canRemove, mutedRooms } = useApp();
+  const { me, rooms, mainRoom, conversations, online, isAdmin, profiles, mutedRooms } = useApp();
   const news = useMoreNews(me?.id, me?.status === 'active');
   const [noticeClosed, setNoticeClosed] = useState(false);
   const [drawer, setDrawer] = useState(false);
@@ -44,15 +44,15 @@ export default function Layout() {
   // Rooms I muted go to the bottom, without an unread count.
   const topicRooms = rooms.filter((r) => !r.is_main).sort((a, b) => Number(mutedRooms.has(a.id)) - Number(mutedRooms.has(b.id)));
   const unreadOf = (r: { id: number; unread: number }) => (mutedRooms.has(r.id) ? 0 : r.unread);
-  // Moderators: open reports.
+  // Admins: open reports (the moderation page is for admins only).
   const [openReports, setOpenReports] = useState(0);
   useEffect(() => {
-    if (!canRemove) return;
+    if (!isAdmin) return;
     const load = () => supabase.rpc('report_list').then(({ data }) => setOpenReports(((data as unknown[]) ?? []).length));
     load();
     const t = setInterval(load, 60000);
     return () => clearInterval(t);
-  }, [canRemove]);
+  }, [isAdmin]);
   const unreadTotal = conversations.reduce((n, c) => n + c.unread, 0) + rooms.reduce((n, r) => n + unreadOf(r), 0);
 
   useEffect(() => {
@@ -178,13 +178,6 @@ export default function Layout() {
               <span className="badge-count">{pendingCount}</span>
             </NavLink>
           )}
-          {canRemove && (
-            <NavLink to="/moderation" className="nav-item">
-              <Icon name="flag" />
-              <span className="nav-label">פיקוח</span>
-              {openReports > 0 && <span className="badge-count">{openReports}</span>}
-            </NavLink>
-          )}
           {isAdmin && openFeedback > 0 && (
             <NavLink to="/admin?tab=feedback" className="nav-item">
               <Icon name="mail" />
@@ -242,6 +235,21 @@ export default function Layout() {
             </NavLink>
           ))}
         </div>
+
+        {isAdmin && (
+          <div className="nav-section nav-admin">
+            <div className="nav-heading"><span>ניהול</span></div>
+            <NavLink to="/admin" className="nav-item">
+              <Icon name="admin_panel_settings" />
+              <span className="nav-label">ניהול הקהילה</span>
+            </NavLink>
+            <NavLink to="/moderation" className="nav-item">
+              <Icon name="flag" />
+              <span className="nav-label">פיקוח</span>
+              {openReports > 0 && <span className="badge-count">{openReports}</span>}
+            </NavLink>
+          </div>
+        )}
       </aside>
 
       <div className="scrim drawer-scrim" onClick={() => setDrawer(false)} />
