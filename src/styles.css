@@ -1418,3 +1418,7 @@ button.author:hover, .title-link:hover { text-decoration: underline; }
 .complaint-row { align-items: flex-start; }
 .complaint-row .list-main { display: flex; flex-direction: column; gap: 4px; }
 .list-sub.suggestion { display: inline-flex; align-items: center; gap: 4px; color: var(--primary); }
+.key-why { font-size: 13px; background: rgba(255, 255, 255, 0.5); border-radius: 12px; padding: 8px 12px; }
+.key-guide.compact .key-why { background: var(--surface-2); }
+.key-why summary { cursor: pointer; font-weight: 600; }
+.key-why ul { margin-top: 6px; padding-inline-start: 18px; display: flex; flex-direction: column; gap: 4px; }

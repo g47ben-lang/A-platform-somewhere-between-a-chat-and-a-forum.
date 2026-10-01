@@ -130,7 +130,7 @@ export default function BotPage() {
         <Icon name="lock" size={18} />
         <span>
           {BOT_NAME} יכול לדווח לניהול האתר על כל מה שנכתב לו. בהמשך הוא יוגבל יותר בדיווחים; זה רק בתקופת ההקמה, כדי שיבין את
-          העניינים ויתאים את עצמו לתפקיד. (התשובות שלו נכתבות על ידי Gemini של Google.)
+          העניינים ויתאים את עצמו לתפקיד.
         </span>
       </div>
       <div className="stream bubbles bot-stream">

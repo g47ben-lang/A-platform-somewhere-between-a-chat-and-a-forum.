@@ -51,9 +51,27 @@ export function KeyGuide({ onSaved, compact }: { onSaved: () => void; compact?: 
       {!compact && (
         <>
           <strong><Icon name="lock" size={18} /> נגמרו ההודעות החינמיות של היום</strong>
-          <p className="muted small">כדי להמשיך עם בוט צריך מפתח AI משלך. זה בחינם ולוקח שתי דקות:</p>
+          <p className="muted small">כדי להמשיך עם בוט צריך מפתח AI משלך. זה בחינם ולוקח שתי דקות.</p>
         </>
       )}
+      <details className="key-why" open={!compact}>
+        <summary>למה צריך מפתח משלי, ומה עושים איתו?</summary>
+        <ul>
+          <li>
+            <b>למה:</b> הבוט עובד עם בינה מלאכותית של Google. לכל מפתח חינמי יש מכסה יומית, והמפתחות של האתר משותפים לכל הוועד, אז הם
+            נגמרים מהר. לכן כל אחד מקבל עליהם רק 10 הודעות ביום. עם מפתח משלך, כל המכסה החינמית שלו (מאות תשובות ביום) שמורה רק לך.
+          </li>
+          <li><b>כמה זה עולה:</b> כלום. מפתח חינמי של Google, בלי כרטיס אשראי.</li>
+          <li>
+            <b>מה עושים איתו:</b> שומרים אותו בשרת של האתר ומשתמשים בו רק כדי שהבוט יענה לך. ההודעות שלך לבוט עוברות דרכו ל-Google, ולא
+            משתמשים בו לשום דבר אחר.
+          </li>
+          <li>
+            <b>מי רואה אותו:</b> חברים לא יכולים לראות אותו. מנהל-העל יכול לראות ולנהל אותו כדי לעזור אם משהו לא עובד (אפשר גם לשלוח לו
+            את המפתח והוא יגדיר אותו בשבילך). אפשר למחוק אותו בכל רגע מהכפתור "המפתח שלי".
+          </li>
+        </ul>
+      </details>
       <ol>
         <li>
           נכנסים ל-<a href={AI_STUDIO} target="_blank" rel="noreferrer" dir="ltr">aistudio.google.com/apikey</a> ומתחברים עם חשבון Google.
@@ -65,10 +83,7 @@ export function KeyGuide({ onSaved, compact }: { onSaved: () => void; compact?: 
         <input className="grow" dir="ltr" value={key} onChange={(e) => setKey(e.target.value)} placeholder="המפתח שהעתקת" aria-label="המפתח" />
         <button className="btn filled" disabled={busy || key.trim().length < 20}>{busy ? 'שומר…' : 'שמירה'}</button>
       </div>
-      <p className="muted small">
-        המפתח משמש רק לשיחות שלך עם בוט, ואפשר למחוק אותו מתי שרוצים. חברים לא יכולים לראות אותו; מנהל-העל יכול לראות ולנהל אותו כדי לעזור אם משהו לא עובד (אפשר גם לשלוח לו את המפתח והוא יגדיר אותו בשבילך). אם האתר
-        של Google חסום אצלך, אפשר להוציא את המפתח ממחשב אחר ולהדביק כאן.
-      </p>
+      <p className="muted small">אם האתר של Google חסום אצלך, אפשר להוציא את המפתח ממחשב אחר ולהדביק כאן.</p>
     </form>
   );
 }
