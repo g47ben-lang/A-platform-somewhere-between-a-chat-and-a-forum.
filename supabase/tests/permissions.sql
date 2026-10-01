@@ -739,6 +739,16 @@ select pg_temp.denied($$select bot_mark(auth.uid(), true)$$, 'member cannot clea
 select pg_temp.check((select count(*) = 0 from ai_key_list()), 'member sees no AI keys');
 select pg_temp.denied($$select ai_key_add('x', 'AIzaSyFAKEFAKEFAKE')$$, 'member cannot add AI keys');
 select pg_temp.denied($$select * from ai_take_key()$$, 'member cannot take an AI key');
+-- free messages, then his own key
+reset role;
+update bot_state set free_used = bot_free_daily(), free_day = (now() at time zone 'Asia/Jerusalem')::date, blocked_until = null where user_id = '00000000-0000-0000-0000-00000000000d';
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select pg_temp.check((select free_left = 0 and not has_key from bot_my_quota()), 'free messages used up');
+select pg_temp.denied($$select bot_send('עוד שאלה על הוועד')$$, 'no more free messages without his own key');
+select ai_my_key_set('AIzaMEMBERKEYMEMBERKEY0001');
+select pg_temp.check((select has_key and masked = 'AIza…0001' from bot_my_quota()), 'member saves his own key (masked)');
+select pg_temp.check(bot_send('שאלה עם מפתח משלי') > 0, 'with his own key he keeps writing');
+select pg_temp.check((select count(*) = 0 from ai_keys), 'member cannot read keys, not even his own');
 select pg_temp.check((select count(*) = 0 from ai_keys), 'member cannot read AI keys directly');
 reset role;
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
@@ -754,11 +764,14 @@ reset role;
 -- the Edge Function (service role) takes keys within the per-minute limit
 update bot_state set blocked_until = now() - interval '1 minute';
 select pg_temp.check(not bot_mark('00000000-0000-0000-0000-00000000000d', true), 'a useful exchange takes a strike off');
+select pg_temp.check((select api_key = 'AIzaMEMBERKEYMEMBERKEY0001' from ai_take_key('00000000-0000-0000-0000-00000000000d')), 'his own key serves his requests');
+select pg_temp.check((select api_key = 'AIzaSyFAKEFAKEFAKE1234' from ai_take_key('00000000-0000-0000-0000-00000000000b')), 'members without a key use the shared keys');
+update ai_keys set used_minute = 0 where owner_id is null;
 select pg_temp.check((select api_key = 'AIzaSyFAKEFAKEFAKE1234' from ai_take_key()), 'edge function takes a key');
 select * from ai_take_key();
 select pg_temp.check((select id is null from ai_take_key()), 'per-minute limit respected');
 update ai_keys set minute_start = now() - interval '2 minutes';
-select ai_key_result((select min(id) from ai_keys), '429', 60);
+select ai_key_result((select min(id) from ai_keys where owner_id is null), '429', 60);
 select pg_temp.check((select id is null from ai_take_key()), 'a rate-limited key rests');
 -- claims need the consent of the member they are about
 insert into bot_claims (about_id, by_id, claim) values ('00000000-0000-0000-0000-00000000000d', '00000000-0000-0000-0000-00000000000b', 'הוא יודע לפתח אתרים');

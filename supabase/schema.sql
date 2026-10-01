@@ -2558,6 +2558,9 @@ alter table ai_keys enable row level security;  -- no policies: owner functions 
 -- Google retired gemini-2.5-flash for new keys and recommends gemini-3.8-flash: the default, and every old key moves
 -- to it (and stops resting after the 404). The Edge Function also follows Google's recommendation by itself on a 404.
 alter table ai_keys alter column model set default 'gemini-3.8-flash';
+-- A member's own key (null = the site's shared keys, managed by the owner). Used only for his own requests.
+alter table ai_keys add column if not exists owner_id uuid references profiles on delete cascade;
+create index if not exists ai_keys_owner_idx on ai_keys (owner_id);
 update ai_keys set model = 'gemini-3.8-flash', cooldown_until = null, last_error = null where model = 'gemini-2.5-flash';
 
 create table if not exists bot_messages (
@@ -2595,7 +2598,7 @@ returns table (id bigint, label text, masked text, model text, daily_limit int, 
 language sql stable security definer set search_path = public as $$
   select k.id, k.label, left(k.api_key, 4) || '…' || right(k.api_key, 4), k.model, k.daily_limit, k.per_minute, k.enabled,
          case when k.used_day = ai_quota_day() then k.used_today else 0 end, k.cooldown_until, k.last_error, k.last_used_at
-    from ai_keys k where is_owner() order by k.id;
+    from ai_keys k where is_owner() and k.owner_id is null order by k.id;
 $$;
 
 create or replace function ai_key_add(p_label text, p_key text, p_model text default null, p_daily int default 200, p_minute int default 8)
@@ -2615,25 +2618,30 @@ begin
   if not is_owner() then raise exception 'רק מנהל-העל מנהל את מפתחות ה-AI' using errcode = '42501'; end if;
   update ai_keys set enabled = p_enabled, model = coalesce(nullif(trim(p_model), ''), model), daily_limit = p_daily,
                      per_minute = p_minute, cooldown_until = case when p_enabled then null else cooldown_until end
-   where id = p_id;
+   where id = p_id and owner_id is null;
 end $$;
 
 create or replace function ai_key_remove(p_id bigint) returns void
 language plpgsql security definer set search_path = public as $$
 begin
   if not is_owner() then raise exception 'רק מנהל-העל מנהל את מפתחות ה-AI' using errcode = '42501'; end if;
-  delete from ai_keys where id = p_id;
+  delete from ai_keys where id = p_id and owner_id is null;
 end $$;
 
 -- Edge Function only: take the least used key that still has quota (today and this minute) and count the use.
-create or replace function ai_take_key(out id bigint, out api_key text, out model text)
+-- A member with his own key uses only it; everyone else uses the shared keys.
+drop function if exists ai_take_key();
+create or replace function ai_take_key(p_user uuid default null, out id bigint, out api_key text, out model text)
 language plpgsql security definer set search_path = public as $$
-declare k ai_keys;
+declare
+  k ai_keys;
+  own boolean := p_user is not null and exists (select 1 from ai_keys x where x.owner_id = p_user and x.enabled);
 begin
   update ai_keys set used_day = ai_quota_day(), used_today = 0 where used_day <> ai_quota_day();
   update ai_keys set minute_start = now(), used_minute = 0 where minute_start < now() - interval '1 minute';
   select * into k from ai_keys
    where enabled and (cooldown_until is null or cooldown_until < now())
+     and (case when own then owner_id = p_user else owner_id is null end)
      and used_today < daily_limit and used_minute < per_minute
    order by used_today::numeric / daily_limit, last_used_at nulls first
    limit 1 for update skip locked;
@@ -2677,6 +2685,46 @@ begin
   return true;
 end $$;
 
+-- How many messages a day a member gets on the shared keys. After that he adds his own free key (guide on the bot page).
+create or replace function bot_free_daily() returns int language sql immutable as $$ select 10 $$;
+alter table bot_state add column if not exists free_day date;
+alter table bot_state add column if not exists free_used int not null default 0;
+
+-- A member saves his own Google AI Studio key (replaces an earlier one). Nobody can read it back, not even the owner.
+create or replace function ai_my_key_set(p_key text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not is_active() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
+  if char_length(trim(coalesce(p_key, ''))) not between 20 and 200 then raise exception 'זה לא נראה כמו מפתח. העתק אותו שוב מ-AI Studio.'; end if;
+  delete from ai_keys where owner_id = auth.uid();
+  insert into ai_keys (label, api_key, owner_id, daily_limit, per_minute)
+  values ('אישי', trim(p_key), auth.uid(), 200, 8);
+end $$;
+
+create or replace function ai_my_key_remove() returns void
+language sql security definer set search_path = public as $$
+  delete from ai_keys where owner_id = auth.uid();
+$$;
+
+-- My standing with the bot: free messages left today, and my own key (masked, usage, last error).
+create or replace function bot_my_quota(out free_left int, out has_key boolean, out masked text, out used_today int,
+                                        out daily_limit int, out key_error text, out resting boolean)
+language plpgsql stable security definer set search_path = public as $$
+declare k ai_keys; st bot_state;
+begin
+  select * into st from bot_state where user_id = auth.uid();
+  free_left := greatest(bot_free_daily() - case when st.free_day = (now() at time zone 'Asia/Jerusalem')::date then coalesce(st.free_used, 0) else 0 end, 0);
+  select * into k from ai_keys where owner_id = auth.uid() limit 1;
+  has_key := found;
+  if has_key then
+    masked := left(k.api_key, 4) || '…' || right(k.api_key, 4);
+    used_today := case when k.used_day = ai_quota_day() then k.used_today else 0 end;
+    daily_limit := k.daily_limit;
+    key_error := k.last_error;
+    resting := k.cooldown_until > now();
+  end if;
+end $$;
+
 -- Until when I may not write to the bot (null = I may).
 create or replace function bot_my_block() returns timestamptz
 language sql stable security definer set search_path = public as $$
@@ -2700,6 +2748,17 @@ begin
   end if;
   if (select count(*) from bot_messages where user_id = auth.uid() and role = 'user' and created_at > now() - interval '1 hour') >= 40 then
     raise exception 'סנדר צריך הפסקה. נסה שוב בעוד קצת.';
+  end if;
+  -- Free messages on the shared keys; after that only with his own key.
+  if not exists (select 1 from ai_keys where owner_id = auth.uid() and enabled) then
+    insert into bot_state (user_id) values (auth.uid()) on conflict (user_id) do nothing;
+    update bot_state set free_day = (now() at time zone 'Asia/Jerusalem')::date, free_used = 0
+     where user_id = auth.uid() and free_day is distinct from (now() at time zone 'Asia/Jerusalem')::date;
+    if (select free_used from bot_state where user_id = auth.uid()) >= bot_free_daily() then
+      raise exception 'נגמרו ההודעות החינמיות של היום. כדי להמשיך עם סנדר צריך מפתח משלך (חינם, 2 דקות).'
+        using hint = 'need_key';
+    end if;
+    update bot_state set free_used = free_used + 1 where user_id = auth.uid();
   end if;
   insert into bot_messages (user_id, role, body) values (auth.uid(), 'user', b) returning id into v;
   if exists (select 1 from (select body from bot_messages where user_id = auth.uid() and role = 'user' and id < v
@@ -2732,13 +2791,15 @@ language sql stable security definer set search_path = public as $$
 $$;
 
 revoke execute on function ai_key_list(), ai_key_add(text, text, text, int, int), ai_key_update(bigint, boolean, text, int, int),
-  ai_key_remove(bigint), bot_send(text), bot_answer_claim(bigint, boolean), bot_claims_about_me(), bot_my_block() from anon, public;
+  ai_key_remove(bigint), bot_send(text), bot_answer_claim(bigint, boolean), bot_claims_about_me(), bot_my_block(),
+  ai_my_key_set(text), ai_my_key_remove(), bot_my_quota() from anon, public;
 grant execute on function ai_key_list(), ai_key_add(text, text, text, int, int), ai_key_update(bigint, boolean, text, int, int),
-  ai_key_remove(bigint), bot_send(text), bot_answer_claim(bigint, boolean), bot_claims_about_me(), bot_my_block() to authenticated;
-revoke execute on function ai_take_key(), ai_key_result(bigint, text, int), bot_mark(uuid, boolean) from anon, public, authenticated;
+  ai_key_remove(bigint), bot_send(text), bot_answer_claim(bigint, boolean), bot_claims_about_me(), bot_my_block(),
+  ai_my_key_set(text), ai_my_key_remove(), bot_my_quota() to authenticated;
+revoke execute on function ai_take_key(uuid), ai_key_result(bigint, text, int), bot_mark(uuid, boolean) from anon, public, authenticated;
 do $$ begin
   if exists (select 1 from pg_roles where rolname = 'service_role') then
-    grant execute on function ai_take_key(), ai_key_result(bigint, text, int), bot_mark(uuid, boolean) to service_role;
+    grant execute on function ai_take_key(uuid), ai_key_result(bigint, text, int), bot_mark(uuid, boolean) to service_role;
   end if;
 end $$;
 

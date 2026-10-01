@@ -1,6 +1,7 @@
 // Supabase Edge Function "bot": the community's AI bot "סנדר", on Google AI Studio (Gemini) free keys.
 // Called by the site with the member's login (keep Verify JWT ON). Keys live in the ai_keys table (the owner
-// adds them in the admin page); ai_take_key() picks one that still has quota and rotates on rate limits.
+// adds them in the admin page); ai_take_key(member) picks one that still has quota and rotates on rate limits.
+// After bot_free_daily() messages a day a member needs his own key (ai_my_key_set), which then serves only him.
 //
 // What the bot knows: public room messages (never private chats, never who wrote an anonymous message) and
 // claims about members that the member himself allowed (bot_claims, never naming who told it).
@@ -31,7 +32,7 @@ Deno.serve(async (req) => {
 
   const body = (await req.json().catch(() => ({}))) as Json;
   try {
-    if (body.mode === 'gag') return reply(await gag(db, body));
+    if (body.mode === 'gag') return reply(await gag(db, me.id, body));
     return reply(await chat(db, me as Profile));
   } catch (e) {
     return reply({ error: String((e as Error).message ?? e) }, 500);
@@ -43,9 +44,10 @@ function reply(data: Json, status = 200) {
 }
 
 // ---------- Gemini with key rotation ----------
-async function gemini(db: SupabaseClient, system: string, contents: Json[], schema: Json): Promise<Json | null> {
+// userId: a member with his own key is served only by it; others by the shared keys.
+async function gemini(db: SupabaseClient, userId: string, system: string, contents: Json[], schema: Json): Promise<Json | null> {
   for (let attempt = 0; attempt < 5; attempt++) {
-    const { data } = await db.rpc('ai_take_key');
+    const { data } = await db.rpc('ai_take_key', { p_user: userId });
     const k = (Array.isArray(data) ? data[0] : data) as { id: number | null; api_key: string; model: string } | null;
     if (!k?.id) return null; // no key with quota left
     const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(k.model)}:generateContent`, {
@@ -223,9 +225,16 @@ ${recentChat || '(שקט)'}`;
     required: ['reply', 'verdict'],
   };
 
-  const out = await gemini(db, system, contents, schema);
+  const out = await gemini(db, me.id, system, contents, schema);
   if (!out) {
-    await db.from('bot_messages').insert({ user_id: me.id, role: 'bot', body: 'אני קצת עייף עכשיו (נגמרה המכסה של היום או של הדקה). נסה שוב עוד מעט.' });
+    const { count: own } = await db.from('ai_keys').select('id', { count: 'exact', head: true }).eq('owner_id', me.id);
+    await db.from('bot_messages').insert({
+      user_id: me.id,
+      role: 'bot',
+      body: own
+        ? 'המפתח האישי שלך לא עובד כרגע (Google החזירה שגיאה או שנגמרה המכסה שלו). תבדוק אותו בכפתור "המפתח שלי" למעלה.'
+        : 'אני קצת עייף עכשיו (נגמרה המכסה של היום או של הדקה). נסה שוב עוד מעט.',
+    });
     return { ok: false };
   }
 
@@ -280,7 +289,7 @@ ${recentChat || '(שקט)'}`;
 }
 
 // ---------- News flash (מבזק) ----------
-async function gag(db: SupabaseClient, body: Json): Promise<Json> {
+async function gag(db: SupabaseClient, userId: string, body: Json): Promise<Json> {
   const template = String(body.template ?? 'flash');
   const idea = String(body.idea ?? '').slice(0, 400);
   const kinds: Record<string, string> = {
@@ -296,7 +305,7 @@ async function gag(db: SupabaseClient, body: Json): Promise<Json> {
     properties: { title: { type: 'STRING' }, text: { type: 'STRING' }, sign: { type: 'STRING' } },
     required: ['title', 'text'],
   };
-  const out = await gemini(db, system, [{ role: 'user', parts: [{ text: idea ? `הרעיון: ${idea}` : 'תמציא משהו על החיים בישיבה' }] }], schema);
+  const out = await gemini(db, userId, system, [{ role: 'user', parts: [{ text: idea ? `הרעיון: ${idea}` : 'תמציא משהו על החיים בישיבה' }] }], schema);
   if (!out) return { error: 'הבוט עייף עכשיו (נגמרה המכסה). נסה עוד מעט.' };
   return {
     title: String(out.title ?? '').slice(0, template === 'qa' ? 200 : 40),

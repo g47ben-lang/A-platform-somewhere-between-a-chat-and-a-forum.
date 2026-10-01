@@ -6,6 +6,7 @@ import { clockTime, errorText } from '../lib/format';
 import { useFeedback } from '../components/Feedback';
 import Icon from '../components/Icon';
 import RichText from '../components/RichText';
+import { KeyGuide, MyKeyDialog, useBotQuota } from '../components/BotKey';
 
 export const BOT_NAME = 'סנדר';
 
@@ -41,6 +42,11 @@ export default function BotPage() {
     return () => clearTimeout(t);
   }, [blockedUntil, checkBlock]);
   const blocked = !!blockedUntil && new Date(blockedUntil) > new Date();
+  // Free messages a day on the shared keys; after that the member adds his own free key.
+  const { quota, reloadQuota } = useBotQuota();
+  const [needKey, setNeedKey] = useState(false);
+  const [keyDialog, setKeyDialog] = useState(false);
+  const mustAddKey = needKey || (!!quota && !quota.has_key && quota.free_left <= 0);
   const end = useRef<HTMLDivElement>(null);
 
   const loadClaims = useCallback(async () => {
@@ -77,8 +83,11 @@ export default function BotPage() {
     const { data: id, error } = await supabase.rpc('bot_send', { p_body: body });
     if (error) {
       checkBlock();
+      reloadQuota();
+      if ((error as { hint?: string }).hint === 'need_key') return setNeedKey(true);
       return toast(errorText(error), 'error');
     }
+    reloadQuota();
     setText('');
     setList((prev) => (prev && !prev.some((x) => x.id === id) ? [...prev, { id: id as number, role: 'user', body, claim_id: null, from_id: null, created_at: new Date().toISOString() }] : prev));
     setThinking(true);
@@ -110,6 +119,12 @@ export default function BotPage() {
           <h1>{BOT_NAME}</h1>
           <p>הבוט של הוועד: נייעס, פאנצ'ים ומה קורה בצ'אט</p>
         </div>
+        {quota && (
+          <button className="chip-btn" onClick={() => setKeyDialog(true)} title="המפתח שלי">
+            <Icon name="lock" size={16} />
+            {quota.has_key ? 'המפתח שלי' : `נשארו היום ${quota.free_left} הודעות חינם`}
+          </button>
+        )}
       </header>
       <div className="notice bot-notice">
         <Icon name="lock" size={18} />
@@ -167,7 +182,9 @@ export default function BotPage() {
         </div>
       </div>
       <div className="composer-wrap">
-        {blocked ? (
+        {mustAddKey && !blocked ? (
+          <KeyGuide onSaved={() => { setNeedKey(false); reloadQuota(); }} />
+        ) : blocked ? (
           <div className="composer disabled">
             <Icon name="hourglass_top" size={20} />
             <span className="grow">
@@ -184,6 +201,9 @@ export default function BotPage() {
         </form>
         )}
       </div>
+      {keyDialog && quota && (
+        <MyKeyDialog quota={quota} onClose={() => setKeyDialog(false)} onChanged={() => { setNeedKey(false); reloadQuota(); }} />
+      )}
     </section>
   );
 }

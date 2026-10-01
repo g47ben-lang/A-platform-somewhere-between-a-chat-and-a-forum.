@@ -1378,3 +1378,9 @@ button.author:hover, .title-link:hover { text-decoration: underline; }
 .review-line { display: grid; grid-template-columns: 110px minmax(0, 1fr) auto; gap: 10px; align-items: baseline; font-size: 14px; padding: 6px 8px; border-radius: 8px; }
 .review-line.bot { background: var(--surface-2); }
 .review-line span { white-space: pre-wrap; word-break: break-word; }
+.key-guide { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-radius: 16px; background: var(--primary-container); color: var(--on-primary-container); }
+.key-guide.compact { background: transparent; color: inherit; padding: 0; }
+.key-guide strong { display: inline-flex; align-items: center; gap: 6px; }
+.key-guide ol { padding-inline-start: 20px; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+.key-guide input { height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--outline); background: var(--surface); color: var(--text); }
+.pane-head .chip-btn { margin-inline-start: auto; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
