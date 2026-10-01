@@ -44,7 +44,11 @@ export default function AdminPage() {
   // Owner: new reports from בוט.
   const [botAlerts, setBotAlerts] = useState(0);
   useEffect(() => {
-    if (isOwner) supabase.rpc('bot_alert_count').then(({ data }) => setBotAlerts((data as number) ?? 0));
+    if (!isOwner) return;
+    const load = () => supabase.rpc('bot_alert_count').then(({ data }) => setBotAlerts((data as number) ?? 0));
+    load();
+    window.addEventListener('bot-alerts-seen', load);
+    return () => window.removeEventListener('bot-alerts-seen', load);
   }, [isOwner, tab]);
 
   const all = [...profiles.values()];

@@ -2903,7 +2903,7 @@ create or replace function bot_alert_push() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare o uuid := (select u.id from auth.users u where lower(u.email) = owner_email() limit 1);
 begin
-  if o is null or new.level = 'odd' then return new; end if;
+  if o is null or new.level = 'odd' or new.user_id = o then return new; end if;
   perform queue_push(o, 'on_dm', 'bot-alert:' || new.id,
     case when new.level = 'urgent' then 'בוט: דחוף' else 'בוט מדווח' end,
     (select display_name from profiles where id = new.user_id) || ': ' || new.reason, '#/admin?tab=sender');
@@ -2918,10 +2918,23 @@ language sql security definer set search_path = public as $$
   update bot_alerts set seen_at = now() where id = any(p_ids) and seen_at is null and is_owner();
 $$;
 
+-- The badge counts only what needs attention (concern / urgent, not yet seen); "odd" shows in the list without a badge.
+-- Never reports about the owner himself. The list and the count come from the same rows, so a badge always has content.
 create or replace function bot_alert_count() returns int
 language sql stable security definer set search_path = public as $$
-  select count(*)::int from bot_alerts where seen_at is null and is_owner();
+  select count(*)::int from bot_alerts
+   where seen_at is null and level in ('concern', 'urgent') and user_id <> auth.uid() and is_owner();
 $$;
+
+create or replace function bot_alert_list()
+returns setof bot_alerts
+language sql stable security definer set search_path = public as $$
+  select * from bot_alerts where user_id <> auth.uid() and is_owner() order by id desc limit 100;
+$$;
+
+-- Old reports about the owner himself (from before the bot recognized him) are not news.
+update bot_alerts a set seen_at = coalesce(a.seen_at, now())
+  from auth.users u where u.id = a.user_id and lower(u.email) = owner_email() and a.seen_at is null;
 
 -- Complaints about בוט ("יש לי תלונה עליך", or why someone got annoyed with him): written by the Edge Function,
 -- read by the owner, who copies the open ones to improve the bot and marks them handled.
@@ -3073,8 +3086,8 @@ language sql stable security definer set search_path = public as $$
    group by m.user_id order by max(m.created_at) desc;
 $$;
 
-revoke execute on function bot_alerts_seen(bigint[]), bot_alert_count(), bot_overview() from anon, public;
-grant execute on function bot_alerts_seen(bigint[]), bot_alert_count(), bot_overview() to authenticated;
+revoke execute on function bot_alerts_seen(bigint[]), bot_alert_count(), bot_overview(), bot_alert_list() from anon, public;
+grant execute on function bot_alerts_seen(bigint[]), bot_alert_count(), bot_overview(), bot_alert_list() to authenticated;
 
 -- ---------- Row Level Security ----------
 alter table profiles         enable row level security;

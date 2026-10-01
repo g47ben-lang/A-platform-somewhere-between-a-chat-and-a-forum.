@@ -824,7 +824,13 @@ select pg_temp.check((select count(*) = 0 from bot_alerts) and bot_alert_count()
 select pg_temp.check((select count(*) = 0 from bot_messages where user_id <> auth.uid()), 'a regular admin cannot read conversations with בוט');
 reset role;
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000e0');
-select pg_temp.check(bot_alert_count() = 1 and (select count(*) = 1 from bot_alerts), 'owner sees the report');
+reset role;
+insert into bot_alerts (user_id, level, reason) values ('00000000-0000-0000-0000-00000000000d', 'odd', 'משהו קטן');
+insert into bot_alerts (user_id, level, reason) values ('00000000-0000-0000-0000-0000000000e0', 'concern', 'על המנהל עצמו');
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000e0');
+select pg_temp.check(bot_alert_count() = 1, 'the badge counts only concern/urgent, never about the owner himself');
+select pg_temp.check((select count(*) = 2 from bot_alert_list()), 'the list shows every report except about the owner');
+select pg_temp.check((select count(*) >= 1 from bot_alert_list() where level = 'concern' and seen_at is null), 'a counted report is always in the list');
 select pg_temp.check((select count(*) >= 1 from bot_overview()) and (select count(*) > 0 from bot_messages where user_id = '00000000-0000-0000-0000-00000000000d'), 'owner can sample conversations');
 select bot_alerts_seen(array(select id from bot_alerts));
 reset role;

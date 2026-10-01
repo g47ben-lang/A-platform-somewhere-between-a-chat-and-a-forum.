@@ -53,7 +53,11 @@ export default function Layout() {
     const load = () => supabase.rpc('bot_alert_count').then(({ data }) => setBotAlerts((data as number) ?? 0));
     load();
     const t = setInterval(load, 60000);
-    return () => clearInterval(t);
+    window.addEventListener('bot-alerts-seen', load);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener('bot-alerts-seen', load);
+    };
   }, [isOwner, location.pathname]);
   // Admins: open reports (the moderation page is for admins only).
   const [openReports, setOpenReports] = useState(0);

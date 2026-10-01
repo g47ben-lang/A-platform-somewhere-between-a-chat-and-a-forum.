@@ -60,18 +60,24 @@ export default function SenderReports() {
   const [rules, setRules] = useState<Rule[]>([]);
   const [fixing, setFixing] = useState<number | null>(null);
   const [talking, setTalking] = useState<Complaint | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const { toast } = useFeedback();
 
   const load = useCallback(async () => {
     const { data: r } = await supabase.from('bot_prompt_rules').select('*').order('id', { ascending: false });
     setRules((r as Rule[]) ?? []);
     const [a, o, c] = await Promise.all([
-      supabase.from('bot_alerts').select('*').order('id', { ascending: false }).limit(100),
+      supabase.rpc('bot_alert_list'),
       supabase.rpc('bot_overview'),
       supabase.from('bot_complaints').select('*').is('handled_at', null).order('id'),
     ]);
     setComplaints((c.data as Complaint[]) ?? []);
-    setAlerts((a.data as Alert[]) ?? []);
+    const list = (a.data as Alert[]) ?? [];
+    setAlerts(list);
+    setLoadError(a.error ? errorText(a.error) : null);
+    // Opening the tab is seeing them: the badge clears; this view still marks which ones were new.
+    const fresh = list.filter((x) => !x.seen_at).map((x) => x.id);
+    if (fresh.length) supabase.rpc('bot_alerts_seen', { p_ids: fresh }).then(() => window.dispatchEvent(new Event('bot-alerts-seen')));
     setOverview((o.data as Overview[]) ?? []);
   }, []);
   useEffect(() => {
@@ -200,6 +206,7 @@ export default function SenderReports() {
           {BOT_NAME} מדווח בשקט על דברים חריגים בשיחות איתו: מוזר (למשל ניסיון לברר מי כתב אנונימית), מדאיג (בריונות, מצוקה) ודחוף
           (סכנה). על מדאיג ודחוף מגיעה גם התראה לטלפון. החברים יודעים שמנהל-העל מקבל מדגם ודיווחים.
         </p>
+        {loadError && <p className="small" style={{ color: 'var(--danger)' }}>שגיאה בטעינת הדיווחים: {loadError}</p>}
         {alerts === null ? (
           <div className="spinner" />
         ) : alerts.length === 0 ? (
