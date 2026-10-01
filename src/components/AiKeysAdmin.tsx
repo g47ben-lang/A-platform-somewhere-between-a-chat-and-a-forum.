@@ -63,7 +63,7 @@ export default function AiKeysAdmin() {
   return (
     <section className="card-section ai-keys">
       <div className="section-head">
-        <h2>מפתחות AI לבוט ({keys?.length ?? 0})</h2>
+        <h2>מפתחות AI לסנדר ({keys?.length ?? 0})</h2>
         <span className="muted small">נשארו היום כ-{totalLeft} תשובות</span>
       </div>
       <p className="muted small">
@@ -82,7 +82,7 @@ export default function AiKeysAdmin() {
       {keys === null ? (
         <div className="spinner" />
       ) : keys.length === 0 ? (
-        <div className="empty-inline small"><Icon name="mood" /><span>עוד אין מפתחות. בלי מפתח הבוט לא עונה.</span></div>
+        <div className="empty-inline small"><Icon name="mood" /><span>עוד אין מפתחות. בלי מפתח סנדר לא עונה.</span></div>
       ) : (
         <ul className="list">
           {keys.map((k) => {

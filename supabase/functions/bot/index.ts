@@ -1,14 +1,16 @@
-// Supabase Edge Function "bot": the community's AI bot ("בוט הנייעס"), on Google AI Studio (Gemini) free keys.
+// Supabase Edge Function "bot": the community's AI bot "סנדר", on Google AI Studio (Gemini) free keys.
 // Called by the site with the member's login (keep Verify JWT ON). Keys live in the ai_keys table (the owner
 // adds them in the admin page); ai_take_key() picks one that still has quota and rotates on rate limits.
 //
 // What the bot knows: public room messages (never private chats, never who wrote an anonymous message) and
 // claims about members that the member himself allowed (bot_claims, never naming who told it).
-// mode "chat": answers the member's latest message in his bot conversation (bot_messages).
+// mode "chat": answers the member's latest message in his bot conversation (bot_messages). Talks only about the
+//              chat and the ועד; every exchange gets a verdict, and wasted ones (off topic, repeating) add strikes:
+//              3 strikes = a quarter of an hour block (bot_mark), so free keys aren't spent on nonsense.
 // mode "gag":  writes a news-flash (מבזק) for the news-flash maker.
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 
-const BOT_NAME = 'בוט הנייעס';
+const BOT_NAME = 'סנדר';
 const cors = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -139,6 +141,12 @@ async function chat(db: SupabaseClient, me: Profile): Promise<Json> {
   const system = `אתה "${BOT_NAME}", הבוט של קהילת ועד קמ"ד ישיבת חברון: צ'אט סגור של בחורי ישיבה. אתה מדבר בעברית, בלשון זכר, בסגנון של בחור ישיבה חביב ושנון, עם פאנצ'ים, בקצרה (עד 4 משפטים בדרך כלל).
 אתה מדבר עכשיו עם ${me.display_name}. השיחה פרטית ביניכם.
 
+אתה מדבר רק על מה שקשור לצ'אט ולוועד: מה קורה בצ'אט, החברים, החיים בוועד ובישיבה, סקרים, אירועים, פאנצ'ים על הוועד.
+שאלות שלא קשורות (ידע כללי, שיעורי בית, קוד, חדשות העולם וכו') - תענה במשפט קצר שאתה רק על הוועד והצ'אט, ושלשאר יש את ג'מיני הרגיל. verdict = "off_topic".
+אם הוא חוזר על אותה שאלה או אותו נייעס שכבר דיברתם עליו בשיחה הזו, מנדנד, או כותב שטויות בלי תוכן - אל תחזור על מה שכבר אמרת, תגיד בקצרה שכבר דיברתם על זה. verdict = "repetitive".
+אל תספר את אותו נייעס פעמיים באותה שיחה. כשאין משהו חדש, תגיד שאין כרגע חדש ותציע לו לספר לך משהו.
+כל שיחה עניינית על הצ'אט והוועד: verdict = "useful".
+
 מאיפה אתה יודע דברים (ורק מזה, אף פעם לא ממציא עובדות על אנשים אמיתיים):
 1. הודעות פומביות שנכתבו בצ'אט (מצורפות למטה).
 2. דברים שחברים סיפרו לך על חבר, ושהחבר עצמו אישר שמותר לספר. כשאתה מספר כזה דבר תגיד "שמעתי ש..." ואף פעם לא תגיד ממי שמעת.
@@ -173,10 +181,11 @@ ${recentChat || '(שקט)'}`;
     type: 'OBJECT',
     properties: {
       reply: { type: 'STRING' },
+      verdict: { type: 'STRING', enum: ['useful', 'off_topic', 'repetitive'] },
       claims: { type: 'ARRAY', items: { type: 'OBJECT', properties: { about: { type: 'STRING' }, claim: { type: 'STRING' } }, required: ['about', 'claim'] } },
       relays: { type: 'ARRAY', items: { type: 'OBJECT', properties: { to: { type: 'STRING' }, text: { type: 'STRING' } }, required: ['to', 'text'] } },
     },
-    required: ['reply'],
+    required: ['reply', 'verdict'],
   };
 
   const out = await gemini(db, system, contents, schema);
@@ -185,7 +194,13 @@ ${recentChat || '(שקט)'}`;
     return { ok: false };
   }
 
+  // Wasted exchanges add strikes; the third blocks him for a quarter of an hour (bot_mark posts the message).
+  const useful = out.verdict !== 'off_topic' && out.verdict !== 'repetitive';
+  const { data: blocked } = await db.rpc('bot_mark', { p_user: me.id, p_ok: useful });
+  if (blocked) return { ok: true, blocked: true };
+
   await db.from('bot_messages').insert({ user_id: me.id, role: 'bot', body: String(out.reply ?? '').slice(0, 4000) || '...' });
+  if (!useful) return { ok: true };
 
   const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
   const { count: myClaims } = await db.from('bot_claims').select('id', { count: 'exact', head: true }).eq('by_id', me.id).gte('created_at', since);

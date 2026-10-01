@@ -2531,8 +2531,8 @@ grant select on channels, messages, profiles, reactions, message_likes, polls, p
 -- Read-only summaries for guests (totals, the quiz without its open answers, the week's highlights).
 grant execute on function poll_results(bigint), weekly_highlights(), quiz_list(), quiz_leaderboard(), recent_flashes(int) to anon;
 
--- ---------- AI bot ("בוט הנייעס") ----------
--- Each member has a private conversation with the bot (/bot). The Edge Function "bot" (Google AI Studio /
+-- ---------- AI bot "סנדר" ----------
+-- Each member has a private conversation with the bot "סנדר" (/bot), only about the chat and the ועד. The Edge Function "bot" (Google AI Studio /
 -- Gemini, free keys) answers from public room messages only (never private chats or who wrote anonymous
 -- messages). What a member tells it about someone else is a claim: it is shared only after that person
 -- agrees (bot_claims, never naming who said it). The bot can pass a message to another member (relay).
@@ -2646,17 +2646,65 @@ language sql security definer set search_path = public as $$
    where id = p_id;
 $$;
 
--- A member writes to the bot (the Edge Function answers). Up to 40 messages an hour.
+-- Saving the keys: a member who wastes the bot (off topic, repeating himself) collects strikes; at 3 he is
+-- told to go chat with plain Gemini and blocked for a quarter of an hour. A useful exchange takes one strike off.
+create table if not exists bot_state (
+  user_id        uuid primary key references profiles on delete cascade,
+  strikes        int not null default 0,
+  blocked_until  timestamptz
+);
+alter table bot_state enable row level security;  -- no policies: functions only
+
+-- p_ok = true: a useful exchange (one strike off). false: a wasted one. Returns true when this blocked him.
+create or replace function bot_mark(p_user uuid, p_ok boolean) returns boolean
+language plpgsql security definer set search_path = public as $$
+declare n int;
+begin
+  insert into bot_state (user_id) values (p_user) on conflict (user_id) do nothing;
+  if p_ok then
+    update bot_state set strikes = greatest(strikes - 1, 0) where user_id = p_user;
+    return false;
+  end if;
+  update bot_state set strikes = strikes + 1 where user_id = p_user returning strikes into n;
+  if n < 3 then return false; end if;
+  update bot_state set strikes = 0, blocked_until = now() + interval '15 minutes' where user_id = p_user;
+  insert into bot_messages (user_id, role, body) values (p_user, 'bot',
+    'נראה לי שמשעמם לך. אני עסוק עכשיו בלנייעס עם עוד חבר''ה, אתה יכול לנייעס עם ג''מיני הרגיל, בהנאה רבה. נדבר בעוד רבע שעה.');
+  return true;
+end $$;
+
+-- Until when I may not write to the bot (null = I may).
+create or replace function bot_my_block() returns timestamptz
+language sql stable security definer set search_path = public as $$
+  select blocked_until from bot_state where user_id = auth.uid() and blocked_until > now();
+$$;
+
+-- A member writes to the bot (the Edge Function answers). Up to 40 messages an hour, not while blocked.
+-- The same question again is answered here, without spending a key, and counts as a strike.
 create or replace function bot_send(p_body text) returns bigint
 language plpgsql security definer set search_path = public as $$
-declare v bigint;
+declare
+  v bigint;
+  b text := trim(coalesce(p_body, ''));
+  until timestamptz;
 begin
   if not is_active() or is_muted() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
-  if char_length(trim(coalesce(p_body, ''))) not between 1 and 1000 then raise exception 'ההודעה ארוכה מדי'; end if;
-  if (select count(*) from bot_messages where user_id = auth.uid() and role = 'user' and created_at > now() - interval '1 hour') >= 40 then
-    raise exception 'הבוט צריך הפסקה. נסה שוב בעוד קצת.';
+  if char_length(b) not between 1 and 1000 then raise exception 'ההודעה ארוכה מדי'; end if;
+  select blocked_until into until from bot_state where user_id = auth.uid() and blocked_until > now();
+  if until is not null then
+    raise exception 'סנדר עסוק עכשיו בנייעס עם חבר''ה אחרים. נסה שוב בשעה %', to_char(until at time zone 'Asia/Jerusalem', 'HH24:MI');
   end if;
-  insert into bot_messages (user_id, role, body) values (auth.uid(), 'user', trim(p_body)) returning id into v;
+  if (select count(*) from bot_messages where user_id = auth.uid() and role = 'user' and created_at > now() - interval '1 hour') >= 40 then
+    raise exception 'סנדר צריך הפסקה. נסה שוב בעוד קצת.';
+  end if;
+  insert into bot_messages (user_id, role, body) values (auth.uid(), 'user', b) returning id into v;
+  if exists (select 1 from (select body from bot_messages where user_id = auth.uid() and role = 'user' and id < v
+                             and created_at > now() - interval '1 hour' order by id desc limit 5) x
+              where lower(x.body) = lower(b)) then
+    if not bot_mark(auth.uid(), false) then
+      insert into bot_messages (user_id, role, body) values (auth.uid(), 'bot', 'כבר שאלת את זה, אחי. יש משהו חדש?');
+    end if;
+  end if;
   return v;
 end $$;
 
@@ -2680,13 +2728,13 @@ language sql stable security definer set search_path = public as $$
 $$;
 
 revoke execute on function ai_key_list(), ai_key_add(text, text, text, int, int), ai_key_update(bigint, boolean, text, int, int),
-  ai_key_remove(bigint), bot_send(text), bot_answer_claim(bigint, boolean), bot_claims_about_me() from anon, public;
+  ai_key_remove(bigint), bot_send(text), bot_answer_claim(bigint, boolean), bot_claims_about_me(), bot_my_block() from anon, public;
 grant execute on function ai_key_list(), ai_key_add(text, text, text, int, int), ai_key_update(bigint, boolean, text, int, int),
-  ai_key_remove(bigint), bot_send(text), bot_answer_claim(bigint, boolean), bot_claims_about_me() to authenticated;
-revoke execute on function ai_take_key(), ai_key_result(bigint, text, int) from anon, public, authenticated;
+  ai_key_remove(bigint), bot_send(text), bot_answer_claim(bigint, boolean), bot_claims_about_me(), bot_my_block() to authenticated;
+revoke execute on function ai_take_key(), ai_key_result(bigint, text, int), bot_mark(uuid, boolean) from anon, public, authenticated;
 do $$ begin
   if exists (select 1 from pg_roles where rolname = 'service_role') then
-    grant execute on function ai_take_key(), ai_key_result(bigint, text, int) to service_role;
+    grant execute on function ai_take_key(), ai_key_result(bigint, text, int), bot_mark(uuid, boolean) to service_role;
   end if;
 end $$;
 

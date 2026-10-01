@@ -121,7 +121,7 @@ export default function AdminPage() {
           </button>
           {isOwner && (
             <button className={tab === 'ai' ? 'on' : ''} onClick={() => setTab('ai')} role="tab">
-              <Icon name="mood" size={20} /> בוט AI
+              <Icon name="mood" size={20} /> סנדר (AI)
             </button>
           )}
           {isOwner && (

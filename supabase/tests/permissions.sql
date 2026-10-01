@@ -727,6 +727,15 @@ select pg_temp.check(bot_send('מה הנייעס?') > 0, 'member writes to the b
 select pg_temp.check((select count(*) = 1 from bot_messages), 'member sees his own bot conversation');
 select pg_temp.denied($$insert into bot_messages (user_id, role, body) values (auth.uid(), 'bot', 'fake')$$, 'member cannot fake bot answers');
 select pg_temp.check((select count(*) = 0 from bot_claims), 'claims are hidden from members');
+select bot_send('מה הנייעס?');
+select pg_temp.check((select body like 'כבר שאלת%' from bot_messages where role = 'bot' order by id desc limit 1), 'a repeated question is answered without the AI');
+select bot_send('מה הנייעס?');
+select pg_temp.check(bot_my_block() is null, 'two strikes do not block yet');
+select bot_send('מה הנייעס?');
+select pg_temp.check(bot_my_block() > now() + interval '14 minutes', 'repeating himself 3 times blocks him for a quarter of an hour');
+select pg_temp.check((select body like 'נראה לי שמשעמם לך%' from bot_messages where role = 'bot' order by id desc limit 1), 'he is told to go chat with Gemini');
+select pg_temp.denied($$select bot_send('עוד משהו')$$, 'blocked member cannot write to the bot');
+select pg_temp.denied($$select bot_mark(auth.uid(), true)$$, 'member cannot clear his own strikes');
 select pg_temp.check((select count(*) = 0 from ai_key_list()), 'member sees no AI keys');
 select pg_temp.denied($$select ai_key_add('x', 'AIzaSyFAKEFAKEFAKE')$$, 'member cannot add AI keys');
 select pg_temp.denied($$select * from ai_take_key()$$, 'member cannot take an AI key');
@@ -743,6 +752,8 @@ select ai_key_add('ראשי', 'AIzaSyFAKEFAKEFAKE1234', null, 100, 2);
 select pg_temp.check((select masked = 'AIza…1234' and model = 'gemini-2.5-flash' from ai_key_list()), 'owner sees keys masked');
 reset role;
 -- the Edge Function (service role) takes keys within the per-minute limit
+update bot_state set blocked_until = now() - interval '1 minute';
+select pg_temp.check(not bot_mark('00000000-0000-0000-0000-00000000000d', true), 'a useful exchange takes a strike off');
 select pg_temp.check((select api_key = 'AIzaSyFAKEFAKEFAKE1234' from ai_take_key()), 'edge function takes a key');
 select * from ai_take_key();
 select pg_temp.check((select id is null from ai_take_key()), 'per-minute limit respected');

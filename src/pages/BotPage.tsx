@@ -7,7 +7,7 @@ import { useFeedback } from '../components/Feedback';
 import Icon from '../components/Icon';
 import RichText from '../components/RichText';
 
-export const BOT_NAME = 'בוט הנייעס';
+export const BOT_NAME = 'סנדר';
 
 interface BotMessage {
   id: number;
@@ -26,6 +26,21 @@ export default function BotPage() {
   const [claims, setClaims] = useState<Map<number, string>>(new Map());
   const [text, setText] = useState('');
   const [thinking, setThinking] = useState(false);
+  // Wasting the bot (off topic, repeating) blocks him for a quarter of an hour.
+  const [blockedUntil, setBlockedUntil] = useState<string | null>(null);
+  const checkBlock = useCallback(async () => {
+    const { data } = await supabase.rpc('bot_my_block');
+    setBlockedUntil((data as string | null) ?? null);
+  }, []);
+  useEffect(() => {
+    checkBlock();
+  }, [checkBlock]);
+  useEffect(() => {
+    if (!blockedUntil) return;
+    const t = setTimeout(checkBlock, Math.max(1000, new Date(blockedUntil).getTime() - Date.now() + 1000));
+    return () => clearTimeout(t);
+  }, [blockedUntil, checkBlock]);
+  const blocked = !!blockedUntil && new Date(blockedUntil) > new Date();
   const end = useRef<HTMLDivElement>(null);
 
   const loadClaims = useCallback(async () => {
@@ -60,14 +75,18 @@ export default function BotPage() {
     const body = text.trim();
     if (!body || thinking) return;
     const { data: id, error } = await supabase.rpc('bot_send', { p_body: body });
-    if (error) return toast(errorText(error), 'error');
+    if (error) {
+      checkBlock();
+      return toast(errorText(error), 'error');
+    }
     setText('');
     setList((prev) => (prev && !prev.some((x) => x.id === id) ? [...prev, { id: id as number, role: 'user', body, claim_id: null, from_id: null, created_at: new Date().toISOString() }] : prev));
     setThinking(true);
     const { error: fnError } = await supabase.functions.invoke('bot', { body: { mode: 'chat' } });
     setThinking(false);
-    if (fnError) toast('הבוט לא זמין כרגע. אולי עוד לא הוגדר מפתח AI.', 'error');
+    if (fnError) toast(`${BOT_NAME} לא זמין כרגע. אולי עוד לא הוגדר מפתח AI.`, 'error');
     load();
+    checkBlock();
   }
 
   function onKey(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -89,13 +108,13 @@ export default function BotPage() {
         <span className="bot-avatar"><Icon name="mood" size={22} /></span>
         <div className="pane-titles">
           <h1>{BOT_NAME}</h1>
-          <p>שיחה פרטית עם הבוט של הוועד</p>
+          <p>הבוט של הוועד: נייעס, פאנצ'ים ומה קורה בצ'אט</p>
         </div>
       </header>
       <div className="notice bot-notice">
         <Icon name="lock" size={18} />
         <span>
-          על חבר הבוט מספר רק מה שהחבר כתב בעצמו בצ'אט, או מה שהחבר אישר לספר, ואף פעם לא ממי שמע. הוא לא רואה צ'אטים אישיים. ההודעות
+          על חבר סנדר מספר רק מה שהחבר כתב בעצמו בצ'אט, או מה שהחבר אישר לספר, ואף פעם לא ממי שמע. הוא לא רואה צ'אטים אישיים. ההודעות
           כאן נשלחות לשירות ה-AI של Google כדי לענות, ולכן לא כותבים פה דברים פרטיים. כמו בצ'אט האישי, מנהל-העל יכול לראות את השיחה
           במקרה חירום.
         </span>
@@ -112,6 +131,7 @@ export default function BotPage() {
                   <h2>{BOT_NAME}</h2>
                   <p className="muted">
                     שואלים אותו מה הנייעס, מה חבר כתב בצ'אט, מבקשים שיעביר שאלה לחבר ("תשאל את... אם...") או סתם פאנץ'.
+                    הוא מדבר רק על הצ'אט והוועד. מי שמבזבז לו את הזמן נחסם לרבע שעה.
                   </p>
                 </div>
               )}
@@ -148,12 +168,22 @@ export default function BotPage() {
         </div>
       </div>
       <div className="composer-wrap">
+        {blocked ? (
+          <div className="composer disabled">
+            <Icon name="hourglass_top" size={20} />
+            <span className="grow">
+              {BOT_NAME} עסוק עכשיו בנייעס עם חבר'ה אחרים. אפשר לכתוב לו שוב בשעה{' '}
+              {new Date(blockedUntil!).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}.
+            </span>
+          </div>
+        ) : (
         <form className="composer" onSubmit={send}>
           <div className="composer-row">
             <textarea rows={1} value={text} maxLength={1000} onChange={(e) => setText(e.target.value)} onKeyDown={onKey} placeholder="מה הנייעס?" />
             <button className="send-btn" disabled={!text.trim() || thinking} aria-label="שליחה" title="שליחה"><Icon name="send" filled size={20} /></button>
           </div>
         </form>
+        )}
       </div>
     </section>
   );
