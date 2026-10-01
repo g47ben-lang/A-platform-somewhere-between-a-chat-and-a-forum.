@@ -1,4 +1,4 @@
-// Supabase Edge Function "bot": the community's AI bot "נייעסניק", on Google AI Studio (Gemini) free keys.
+// Supabase Edge Function "bot": the community's AI bot "בוט", on Google AI Studio (Gemini) free keys.
 // Called by the site with the member's login (keep Verify JWT ON). Keys live in the ai_keys table (the owner
 // adds them in the admin page); ai_take_key(member) picks one that still has quota and rotates on rate limits.
 // After bot_free_daily() messages a day a member needs his own key (ai_my_key_set), which then serves only him.
@@ -11,7 +11,7 @@
 // mode "gag":  writes a news-flash (מבזק) for the news-flash maker.
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 
-const BOT_NAME = 'נייעסניק';
+const BOT_NAME = 'בוט';
 const cors = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',

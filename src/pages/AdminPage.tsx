@@ -33,7 +33,7 @@ export default function AdminPage() {
   const [filter, setFilter] = useState('');
   const [editRoom, setEditRoom] = useState<Room | null>(null);
   const [newRoom, setNewRoom] = useState(false);
-  // Owner: new reports from נייעסניק.
+  // Owner: new reports from בוט.
   const [botAlerts, setBotAlerts] = useState(0);
   useEffect(() => {
     if (isOwner) supabase.rpc('bot_alert_count').then(({ data }) => setBotAlerts((data as number) ?? 0));
@@ -139,13 +139,13 @@ export default function AdminPage() {
           </button>
           {isOwner && (
             <button className={tab === 'sender' ? 'on' : ''} onClick={() => setTab('sender')} role="tab">
-              <Icon name="flag" size={20} /> נייעסניק מדווח
+              <Icon name="flag" size={20} /> בוט מדווח
               {botAlerts > 0 && <span className="badge-count">{botAlerts}</span>}
             </button>
           )}
           {isOwner && (
             <button className={tab === 'ai' ? 'on' : ''} onClick={() => setTab('ai')} role="tab">
-              <Icon name="smart_toy" size={20} /> נייעסניק (AI)
+              <Icon name="smart_toy" size={20} /> בוט (AI)
             </button>
           )}
           {isOwner && (

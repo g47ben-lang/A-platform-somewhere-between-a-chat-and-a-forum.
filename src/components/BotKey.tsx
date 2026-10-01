@@ -42,7 +42,7 @@ export function KeyGuide({ onSaved, compact }: { onSaved: () => void; compact?: 
     setBusy(false);
     if (error) return toast(errorText(error), 'error');
     setKey('');
-    toast('המפתח נשמר. אפשר להמשיך לכתוב לנייעסניק.');
+    toast('המפתח נשמר. אפשר להמשיך לכתוב לבוט.');
     onSaved();
   }
 
@@ -51,7 +51,7 @@ export function KeyGuide({ onSaved, compact }: { onSaved: () => void; compact?: 
       {!compact && (
         <>
           <strong><Icon name="lock" size={18} /> נגמרו ההודעות החינמיות של היום</strong>
-          <p className="muted small">כדי להמשיך עם נייעסניק צריך מפתח AI משלך. זה בחינם ולוקח שתי דקות:</p>
+          <p className="muted small">כדי להמשיך עם בוט צריך מפתח AI משלך. זה בחינם ולוקח שתי דקות:</p>
         </>
       )}
       <ol>
@@ -66,7 +66,7 @@ export function KeyGuide({ onSaved, compact }: { onSaved: () => void; compact?: 
         <button className="btn filled" disabled={busy || key.trim().length < 20}>{busy ? 'שומר…' : 'שמירה'}</button>
       </div>
       <p className="muted small">
-        המפתח משמש רק לשיחות שלך עם נייעסניק, ואפשר למחוק אותו מתי שרוצים. חברים לא יכולים לראות אותו; מנהל-העל יכול לראות ולנהל אותו כדי לעזור אם משהו לא עובד (אפשר גם לשלוח לו את המפתח והוא יגדיר אותו בשבילך). אם האתר
+        המפתח משמש רק לשיחות שלך עם בוט, ואפשר למחוק אותו מתי שרוצים. חברים לא יכולים לראות אותו; מנהל-העל יכול לראות ולנהל אותו כדי לעזור אם משהו לא עובד (אפשר גם לשלוח לו את המפתח והוא יגדיר אותו בשבילך). אם האתר
         של Google חסום אצלך, אפשר להוציא את המפתח ממחשב אחר ולהדביק כאן.
       </p>
     </form>
@@ -87,11 +87,11 @@ export function MyKeyDialog({ quota, onClose, onChanged }: { quota: BotQuota; on
   }
 
   return (
-    <Modal title="המפתח שלי לנייעסניק" onClose={onClose}>
+    <Modal title="המפתח שלי לבוט" onClose={onClose}>
       {quota.has_key && !replacing ? (
         <div className="form-stack">
           <p>
-            המפתח <span dir="ltr">{quota.masked}</span> משמש לשיחות שלך עם נייעסניק. היום: {quota.used_today ?? 0} מתוך {quota.daily_limit}.
+            המפתח <span dir="ltr">{quota.masked}</span> משמש לשיחות שלך עם בוט. היום: {quota.used_today ?? 0} מתוך {quota.daily_limit}.
           </p>
           {quota.resting && <p className="muted small">המפתח נח כרגע אחרי שגיאה או עומס, ויחזור לעבוד לבד.</p>}
           {quota.key_error && <p className="small" style={{ color: 'var(--danger)' }} dir="auto">שגיאה אחרונה מ-Google: {quota.key_error}</p>}
@@ -104,7 +104,7 @@ export function MyKeyDialog({ quota, onClose, onChanged }: { quota: BotQuota; on
         <>
           {!quota.has_key && (
             <p className="muted">
-              נשארו לך היום {quota.free_left} הודעות חינם לנייעסניק. עם מפתח משלך (חינם) אפשר לכתוב לו בלי המגבלה הזו.
+              נשארו לך היום {quota.free_left} הודעות חינם לבוט. עם מפתח משלך (חינם) אפשר לכתוב לו בלי המגבלה הזו.
             </p>
           )}
           <KeyGuide compact onSaved={() => { onChanged(); onClose(); }} />

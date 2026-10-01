@@ -2544,8 +2544,8 @@ grant select on channels, messages, profiles, reactions, message_likes, polls, p
 -- Read-only summaries for guests (totals, the quiz without its open answers, the week's highlights).
 grant execute on function poll_results(bigint), weekly_highlights(), quiz_list(), quiz_leaderboard(), recent_flashes(int) to anon;
 
--- ---------- AI bot "נייעסניק" ----------
--- Each member has a private conversation with the bot "נייעסניק" (/bot), only about the chat and the ועד. The Edge Function "bot" (Google AI Studio /
+-- ---------- AI bot "בוט" ----------
+-- Each member has a private conversation with the bot "בוט" (/bot), only about the chat and the ועד. The Edge Function "bot" (Google AI Studio /
 -- Gemini, free keys) answers from public room messages only (never private chats or who wrote anonymous
 -- messages). What a member tells it about someone else is a claim: it is shared only after that person
 -- agrees (bot_claims, never naming who said it). The bot can pass a message to another member (relay).
@@ -2812,10 +2812,10 @@ begin
   if char_length(b) not between 1 and 1000 then raise exception 'ההודעה ארוכה מדי'; end if;
   select blocked_until into until from bot_state where user_id = auth.uid() and blocked_until > now();
   if until is not null then
-    raise exception 'נייעסניק עסוק עכשיו בנייעס עם חבר''ה אחרים. נסה שוב בשעה %', to_char(until at time zone 'Asia/Jerusalem', 'HH24:MI');
+    raise exception 'בוט עסוק עכשיו בנייעס עם חבר''ה אחרים. נסה שוב בשעה %', to_char(until at time zone 'Asia/Jerusalem', 'HH24:MI');
   end if;
   if (select count(*) from bot_messages where user_id = auth.uid() and role = 'user' and created_at > now() - interval '1 hour') >= 40 then
-    raise exception 'נייעסניק צריך הפסקה. נסה שוב בעוד קצת.';
+    raise exception 'בוט צריך הפסקה. נסה שוב בעוד קצת.';
   end if;
   -- Free messages on the shared keys; after that only with his own key.
   if not exists (select 1 from ai_keys where owner_id = auth.uid() and enabled) then
@@ -2823,7 +2823,7 @@ begin
     update bot_state set free_day = (now() at time zone 'Asia/Jerusalem')::date, free_used = 0
      where user_id = auth.uid() and free_day is distinct from (now() at time zone 'Asia/Jerusalem')::date;
     if (select free_used from bot_state where user_id = auth.uid()) >= bot_free_daily() then
-      raise exception 'נגמרו ההודעות החינמיות של היום. כדי להמשיך עם נייעסניק צריך מפתח משלך (חינם, 2 דקות).'
+      raise exception 'נגמרו ההודעות החינמיות של היום. כדי להמשיך עם בוט צריך מפתח משלך (חינם, 2 דקות).'
         using hint = 'need_key';
     end if;
     update bot_state set free_used = free_used + 1 where user_id = auth.uid();
@@ -2874,9 +2874,9 @@ end $$;
 drop policy if exists bot_messages_own on bot_messages;
 create policy bot_messages_own on bot_messages for select using (user_id = auth.uid() or is_owner());
 
--- ---------- נייעסניק reports to the owner ----------
--- נייעסניק flags unusual conversations (odd requests, attempts to find out who wrote anonymously, bullying, distress,
--- threats...) with the line that worried it. Owner only: the "נייעסניק מדווח" admin tab, plus a phone push for serious
+-- ---------- בוט reports to the owner ----------
+-- בוט flags unusual conversations (odd requests, attempts to find out who wrote anonymously, bullying, distress,
+-- threats...) with the line that worried it. Owner only: the "בוט מדווח" admin tab, plus a phone push for serious
 -- ones. The owner can also read a sample of conversations (bot_messages is readable by the owner; members are told).
 create table if not exists bot_alerts (
   id          bigint generated always as identity primary key,
@@ -2900,7 +2900,7 @@ declare o uuid := (select u.id from auth.users u where lower(u.email) = owner_em
 begin
   if o is null or new.level = 'odd' then return new; end if;
   perform queue_push(o, 'on_dm', 'bot-alert:' || new.id,
-    case when new.level = 'urgent' then 'נייעסניק: דחוף' else 'נייעסניק מדווח' end,
+    case when new.level = 'urgent' then 'בוט: דחוף' else 'בוט מדווח' end,
     (select display_name from profiles where id = new.user_id) || ': ' || new.reason, '#/admin?tab=sender');
   perform push_kick();
   return new;
@@ -2918,7 +2918,7 @@ language sql stable security definer set search_path = public as $$
   select count(*)::int from bot_alerts where seen_at is null and is_owner();
 $$;
 
--- Complaints about נייעסניק ("יש לי תלונה עליך", or why someone got annoyed with him): written by the Edge Function,
+-- Complaints about בוט ("יש לי תלונה עליך", or why someone got annoyed with him): written by the Edge Function,
 -- read by the owner, who copies the open ones to improve the bot and marks them handled.
 create table if not exists bot_complaints (
   id          bigint generated always as identity primary key,
@@ -2939,7 +2939,7 @@ $$;
 revoke execute on function bot_complaints_handled(bigint[]) from anon, public;
 grant execute on function bot_complaints_handled(bigint[]) to authenticated;
 
--- Owner: who talks to נייעסניק, how much, strikes and blocks (to pick conversations to look at).
+-- Owner: who talks to בוט, how much, strikes and blocks (to pick conversations to look at).
 create or replace function bot_overview()
 returns table (user_id uuid, messages int, last_at timestamptz, strikes int, blocked_until timestamptz, alerts int)
 language sql stable security definer set search_path = public as $$
