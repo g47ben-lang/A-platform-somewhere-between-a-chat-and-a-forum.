@@ -425,7 +425,9 @@ input, textarea, select { font: inherit; color: inherit; }
 .list > li { min-width: 0; }
 .list > li + li { border-top: 1px solid var(--divider); }
 .list-row { display: flex; align-items: center; gap: 14px; padding: 12px 16px; color: var(--text); text-decoration: none !important; }
-a.list-row:hover { background: var(--row-hover); }
+a.list-row:hover, button.list-row:hover { background: var(--row-hover); }
+/* Clickable rows that are buttons: look like the other rows, not like a browser button. */
+button.list-row { width: 100%; border: 0; border-radius: 0; background: none; font: inherit; text-align: start; cursor: pointer; }
 .list-row.static { flex-wrap: wrap; }
 .list-row.unread .list-title, .list-row.unread .list-sub { font-weight: 700; color: var(--text); }
 .list-row.muted-row { opacity: 0.6; }
