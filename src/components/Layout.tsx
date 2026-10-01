@@ -253,12 +253,9 @@ export default function Layout() {
             <NavLink to="/admin" className="nav-item">
               <Icon name="admin_panel_settings" />
               <span className="nav-label">ניהול הקהילה</span>
-              {botAlerts > 0 && <span className="badge-count" title="דיווחים חדשים מבוט">{botAlerts}</span>}
-            </NavLink>
-            <NavLink to="/moderation" className="nav-item">
-              <Icon name="flag" />
-              <span className="nav-label">פיקוח</span>
-              {openReports > 0 && <span className="badge-count">{openReports}</span>}
+              {botAlerts + openReports > 0 && (
+                <span className="badge-count" title="דיווחים פתוחים בפיקוח ודיווחים חדשים מהבוט">{botAlerts + openReports}</span>
+              )}
             </NavLink>
           </div>
         )}

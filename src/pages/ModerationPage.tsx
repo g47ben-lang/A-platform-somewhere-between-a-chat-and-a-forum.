@@ -22,7 +22,8 @@ interface Report {
 }
 
 /** Inspectors and admins: reported messages, and who is muted right now. */
-export default function ModerationPage() {
+/** Moderation: open reports and muted members. `embedded`: as a tab inside ניהול הקהילה (no page frame). */
+export default function ModerationPage({ embedded }: { embedded?: boolean } = {}) {
   const { profiles, rooms, nameOf, canRemove, reloadProfiles } = useApp();
   const { toast } = useFeedback();
   const [reports, setReports] = useState<Report[] | null>(null);
@@ -57,14 +58,8 @@ export default function ModerationPage() {
   };
   const muted = [...profiles.values()].filter((p) => p.muted_until && new Date(p.muted_until) > new Date());
 
-  return (
-    <div className="pane scroll-pane">
-      <div className="page narrow-page">
-        <header className="page-head">
-          <h1>פיקוח</h1>
-          <p className="muted">הודעות שחברים דיווחו עליהן, וחברים מושתקים. מי דיווח לא מוצג.</p>
-        </header>
-
+  const content = (
+      <>
         <section className="card-section">
           <div className="section-head"><h2>דיווחים פתוחים ({reports?.length ?? 0})</h2></div>
           {reports === null ? (
@@ -112,6 +107,25 @@ export default function ModerationPage() {
             </ul>
           )}
         </section>
+      </>
+  );
+
+  if (embedded) {
+    return (
+      <>
+        <p className="muted small">הודעות שחברים דיווחו עליהן, וחברים מושתקים. מי דיווח לא מוצג.</p>
+        {content}
+      </>
+    );
+  }
+  return (
+    <div className="pane scroll-pane">
+      <div className="page narrow-page">
+        <header className="page-head">
+          <h1>פיקוח</h1>
+          <p className="muted">הודעות שחברים דיווחו עליהן, וחברים מושתקים. מי דיווח לא מוצג.</p>
+        </header>
+        {content}
       </div>
     </div>
   );

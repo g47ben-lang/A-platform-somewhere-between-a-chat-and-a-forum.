@@ -20,8 +20,9 @@ import AiKeysAdmin from '../components/AiKeysAdmin';
 import SenderReports from '../components/SenderReports';
 import MemberKeysAdmin from '../components/MemberKeys';
 import ClaudeKeyAdmin from '../components/ClaudeKeyAdmin';
+import ModerationPage from './ModerationPage';
 
-type Tab = 'members' | 'preapproved' | 'anonymous' | 'rooms' | 'media' | 'owner' | 'feedback' | 'stats' | 'guest' | 'ai' | 'sender';
+type Tab = 'members' | 'preapproved' | 'anonymous' | 'rooms' | 'media' | 'owner' | 'feedback' | 'stats' | 'guest' | 'ai' | 'sender' | 'moderation';
 type ProfilePatch = Partial<Pick<Profile, 'status' | 'role' | 'accept_anonymous' | 'can_send_anonymous' | 'join_seen'>>;
 
 export default function AdminPage() {
@@ -34,6 +35,11 @@ export default function AdminPage() {
   const [filter, setFilter] = useState('');
   const [editRoom, setEditRoom] = useState<Room | null>(null);
   const [newRoom, setNewRoom] = useState(false);
+  // Open reports (badge on the "פיקוח" tab).
+  const [openReports, setOpenReports] = useState(0);
+  useEffect(() => {
+    supabase.rpc('report_list').then(({ data }) => setOpenReports(((data as unknown[]) ?? []).length));
+  }, [tab]);
   // Owner: new reports from בוט.
   const [botAlerts, setBotAlerts] = useState(0);
   useEffect(() => {
@@ -125,6 +131,10 @@ export default function AdminPage() {
           <button className={tab === 'members' ? 'on' : ''} onClick={() => setTab('members')} role="tab">
             <Icon name="group" size={20} /> חברים
             {pending.length + newJoins.length > 0 && <span className="badge-count">{pending.length + newJoins.length}</span>}
+          </button>
+          <button className={tab === 'moderation' ? 'on' : ''} onClick={() => setTab('moderation')} role="tab">
+            <Icon name="flag" size={20} /> פיקוח
+            {openReports > 0 && <span className="badge-count">{openReports}</span>}
           </button>
           <button className={tab === 'anonymous' ? 'on' : ''} onClick={() => setTab('anonymous')} role="tab">
             <Icon name="visibility_off" size={20} /> הודעות אנונימיות
@@ -341,6 +351,7 @@ export default function AdminPage() {
         {tab === 'guest' && isOwner && <GuestViewAdmin />}
         {tab === 'ai' && isOwner && <><AiKeysAdmin /><ClaudeKeyAdmin /><MemberKeysAdmin /></>}
         {tab === 'sender' && isOwner && <SenderReports />}
+        {tab === 'moderation' && <ModerationPage embedded />}
 
         {tab === 'preapproved' && (
           <>
