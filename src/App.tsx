@@ -23,8 +23,8 @@ import GuestPage from './pages/GuestPage';
 
 export default function App() {
   const { session, loading, me, isAdmin, recovering, schemaOutdated, isGuest } = useApp();
-  // Guest view: visitors start in the read-only chat and may switch to the login screen and back.
-  const [wantLogin, setWantLogin] = useState(false);
+  // Guest view: visitors start on the login screen, which offers read-only entry while it is open.
+  const [guestMode, setGuestMode] = useState(false);
 
   if (!isConfigured) {
     return (
@@ -39,8 +39,8 @@ export default function App() {
 
   if (loading) return <div className="auth-screen"><div className="spinner" /></div>;
   if (!session) {
-    if (isGuest && !wantLogin) return <GuestPage onLogin={() => setWantLogin(true)} />;
-    return <AuthPage onGuest={isGuest ? () => setWantLogin(false) : undefined} />;
+    if (isGuest && guestMode) return <GuestPage onLogin={() => setGuestMode(false)} />;
+    return <AuthPage onGuest={isGuest ? () => setGuestMode(true) : undefined} />;
   }
   if (recovering) return <NewPasswordPage />;
 

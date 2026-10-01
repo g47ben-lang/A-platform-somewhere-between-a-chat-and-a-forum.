@@ -605,6 +605,17 @@ language sql stable security definer set search_path = public as $$
   select exists (select 1 from profiles where id = auth.uid() and status = 'active');
 $$;
 
+-- Guest view (see site_settings below); defined here because functions above and below use it.
+create table if not exists site_settings (
+  id                int primary key default 1 check (id = 1),
+  guest_view_until  timestamptz,
+  guest_view_by     uuid references profiles on delete set null
+);
+create or replace function guest_view_open() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from site_settings where id = 1 and guest_view_until > now());
+$$;
+
 create or replace function is_mod() returns boolean
 language sql stable security definer set search_path = public as $$
   select exists (select 1 from profiles
@@ -1134,7 +1145,7 @@ language sql stable security definer set search_path = public as $$
          (select count(*)::int from poll_votes v where v.option_id = o.id),
          (select count(distinct user_id)::int from poll_votes v where v.poll_id = p_poll)
     from poll_options o
-   where o.poll_id = p_poll and is_active()
+   where o.poll_id = p_poll and (is_active() or guest_view_open())
    order by o.position;
 $$;
 
@@ -1360,7 +1371,7 @@ language sql stable security definer set search_path = public as $$
               + (select count(*) from reactions r where r.message_id = m.id) as sc
       from messages m
      where m.created_at > now() - interval '7 days' and not m.deleted and not m.system and m.poll_id is null
-       and is_active()
+       and (is_active() or guest_view_open())
   )
   (select 'image', id, channel_id, author_id, anonymous, body, attachment, sc::int from scored
     where attachment ->> 'type' = 'image' and sc >= 3 order by sc desc, id desc limit 1)
@@ -1452,7 +1463,7 @@ language sql stable security definer set search_path = public as $$
                 or exists (select 1 from quiz_guesses g where g.quiz_id = q.id and g.user_id = auth.uid())
               then q.author_id end
     from quote_quizzes q
-   where is_active()
+   where is_active() or guest_view_open()
    order by q.created_at desc
    limit 100;
 $$;
@@ -1463,7 +1474,7 @@ returns table (user_id uuid, points int, correct int)
 language sql stable security definer set search_path = public as $$
   select g.user_id, count(*)::int * 10, count(*)::int
     from quiz_guesses g join profiles p on p.id = g.user_id
-   where g.correct and p.status = 'active' and is_active()
+   where g.correct and p.status = 'active' and (is_active() or guest_view_open())
    group by g.user_id order by 2 desc limit 10;
 $$;
 
@@ -2435,22 +2446,13 @@ grant execute on function create_room, send_message, mark_room_read, mark_room_u
   member_stats to authenticated;
 
 -- ---------- Guest view (temporary, read-only, without logging in) ----------
--- The owner may open the rooms for reading to visitors who are not logged in, for a limited time
+-- The owner may open the site for reading to visitors who are not logged in, for a limited time
 -- (e.g. two days to introduce the site to the public). It closes by itself when the time is up.
--- Guests read only rooms, room messages, active members' names and reactions/likes: never private
--- chats, anonymous authors, polls, confessions or anything else, and they cannot write anything.
-create table if not exists site_settings (
-  id                int primary key default 1 check (id = 1),
-  guest_view_until  timestamptz,
-  guest_view_by     uuid references profiles on delete set null
-);
+-- Guests read rooms, messages, active members' names, reactions/likes, polls (totals only), confessions,
+-- "who said it?" and the calendar: never private chats, anonymous authors, profiles' private data, and
+-- they cannot write anything. (site_settings and guest_view_open() are created near is_active() above.)
 insert into site_settings (id) values (1) on conflict (id) do nothing;
 alter table site_settings enable row level security;  -- no policies: functions only
-
-create or replace function guest_view_open() returns boolean
-language sql stable security definer set search_path = public as $$
-  select exists (select 1 from site_settings where id = 1 and guest_view_until > now());
-$$;
 
 -- Until when visitors may read without logging in (null = closed). Anyone may ask, logged in or not.
 create or replace function guest_view_until() returns timestamptz
@@ -2475,7 +2477,10 @@ revoke execute on function set_guest_view(int) from anon, public;
 grant execute on function set_guest_view(int) to authenticated;
 grant execute on function guest_view_open(), guest_view_until() to anon, authenticated;
 -- Supabase grants these already; explicit so RLS alone decides what a visitor sees.
-grant select on channels, messages, profiles, reactions, message_likes to anon;
+grant select on channels, messages, profiles, reactions, message_likes, polls, poll_options,
+  confessions, confession_reactions, confession_comments, events to anon;
+-- Read-only summaries for guests (totals, the quiz without its open answers, the week's highlights).
+grant execute on function poll_results(bigint), weekly_highlights(), quiz_list(), quiz_leaderboard() to anon;
 
 -- ---------- Row Level Security ----------
 alter table profiles         enable row level security;
@@ -2582,6 +2587,18 @@ drop policy if exists reactions_guest on reactions;
 create policy reactions_guest on reactions for select to anon, authenticated using (guest_view_open());
 drop policy if exists likes_guest on message_likes;
 create policy likes_guest on message_likes for select to anon, authenticated using (guest_view_open());
+drop policy if exists polls_guest on polls;
+create policy polls_guest on polls for select to anon, authenticated using (guest_view_open());
+drop policy if exists poll_options_guest on poll_options;
+create policy poll_options_guest on poll_options for select to anon, authenticated using (guest_view_open());
+drop policy if exists confessions_guest on confessions;
+create policy confessions_guest on confessions for select to anon, authenticated using (guest_view_open());
+drop policy if exists confession_reactions_guest on confession_reactions;
+create policy confession_reactions_guest on confession_reactions for select to anon, authenticated using (guest_view_open());
+drop policy if exists confession_comments_guest on confession_comments;
+create policy confession_comments_guest on confession_comments for select to anon, authenticated using (guest_view_open());
+drop policy if exists events_guest on events;
+create policy events_guest on events for select to anon, authenticated using (guest_view_open());
 
 -- pre-approved emails: admins only (adding goes through add_preapproved)
 drop policy if exists preapproved_admin_select on preapproved_emails;

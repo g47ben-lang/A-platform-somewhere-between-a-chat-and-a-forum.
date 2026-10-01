@@ -72,7 +72,7 @@ interface Props {
   typingLabel?: string;
   /** Changes whenever the user sends, to force scrolling to the newest message. */
   sentTick?: number;
-  /** Visitors who are not logged in (guest view): no actions, no profile cards, no links. */
+  /** Visitors who are not logged in (guest view): no actions and no profile cards. */
   readOnly?: boolean;
 }
 
@@ -341,12 +341,12 @@ function Bubble({
                     <RichText text={m.body} names={names} myName={me?.display_name} />
                   </div>
                 )}
-                {m.eventLabel && !props.readOnly && (
+                {m.eventLabel && (
                   <Link to="/events" className="b-event">
                     <Icon name="calendar_month" size={16} /> בלוח: {m.eventLabel}
                   </Link>
                 )}
-                {m.pollId && !props.readOnly && (
+                {m.pollId && (
                   <Link to={`/polls/${m.pollId}`} className="b-poll">
                     <Icon name="ballot" size={18} /> למענה על הסקר
                   </Link>

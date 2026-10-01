@@ -733,7 +733,16 @@ select pg_temp.check(guest_view_until() is not null, 'visitor learns guest view 
 select pg_temp.check((select count(*) > 0 from messages) and (select count(*) > 0 from channels), 'visitor reads rooms and messages while open');
 select pg_temp.check((select count(*) > 0 from profiles) and (select bool_and(status = 'active') from profiles), 'visitor sees only active members');
 select pg_temp.check((select count(*) = 0 from dm_messages) and (select count(*) = 0 from dm_conversations) and (select count(*) = 0 from anon_authors)
-  and (select count(*) = 0 from polls) and (select count(*) = 0 from confessions) and (select count(*) = 0 from events) and (select count(*) = 0 from site_settings), 'visitor never sees private chats, anonymous authors or other content');
+  and (select count(*) = 0 from poll_votes) and (select count(*) = 0 from quiz_guesses) and (select count(*) = 0 from quote_quizzes)
+  and (select count(*) = 0 from feedback) and (select count(*) = 0 from birthdays) and (select count(*) = 0 from mute_log) and (select count(*) = 0 from site_settings),
+  'visitor never sees private chats, anonymous authors, votes, requests or other private data');
+select pg_temp.check((select count(*) > 0 from polls) and (select count(*) > 0 from poll_options) and (select count(*) > 0 from events), 'visitor reads polls and the calendar');
+select pg_temp.check((select count(*) > 0 from poll_results((select min(id) from polls))), 'visitor sees poll totals');
+select pg_temp.check((select count(*) >= 0 from confessions) and (select count(*) >= 0 from weekly_highlights()) and (select count(*) >= 0 from quiz_leaderboard()), 'visitor reads confessions, highlights and the leaderboard');
+select pg_temp.check((select count(*) = 0 from quiz_list() where closes_at > now() and answer is not null), 'visitor never sees the answer of an open quiz');
+select pg_temp.denied($$select vote_poll((select min(id) from polls), array[(select min(id) from poll_options)])$$, 'visitor cannot vote');
+select pg_temp.denied($$select post_confession('אף פעם לא בדקתי')$$, 'visitor cannot post a confession');
+select pg_temp.denied($$select guess_quote((select min(id) from quote_quizzes), '00000000-0000-0000-0000-00000000000d')$$, 'visitor cannot guess');
 select pg_temp.denied($$select send_message((select id from channels where is_main), 'x')$$, 'visitor cannot post');
 select pg_temp.denied($$insert into reactions (message_id, user_id, emoji) values ((select min(id) from messages), '00000000-0000-0000-0000-00000000000d', '👍')$$, 'visitor cannot react');
 update messages set body = 'hack' where id = (select min(id) from messages);

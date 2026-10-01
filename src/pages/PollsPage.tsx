@@ -14,7 +14,7 @@ export default function PollsPage() {
 }
 
 function PollList() {
-  const { nameOf } = useApp();
+  const { nameOf, isGuest } = useApp();
   const [polls, setPolls] = useState<Poll[] | null>(null);
   const [answered, setAnswered] = useState<Set<number>>(new Set());
   const [creating, setCreating] = useState(false);
@@ -37,9 +37,11 @@ function PollList() {
             <h1>סקרים</h1>
             <p className="muted">כל חבר יכול לפתוח סקר. ההצבעות חסויות: רואים רק כמה בחרו בכל תשובה, לא מי.</p>
           </div>
-          <button className="btn filled" onClick={() => setCreating(true)}>
-            <Icon name="add" size={18} /> סקר חדש
-          </button>
+          {!isGuest && (
+            <button className="btn filled" onClick={() => setCreating(true)}>
+              <Icon name="add" size={18} /> סקר חדש
+            </button>
+          )}
         </header>
         {polls === null ? (
           <div className="spinner" />
@@ -77,7 +79,7 @@ interface Result {
 }
 
 function PollView({ id }: { id: number }) {
-  const { me, nameOf, canRemove } = useApp();
+  const { me, nameOf, canRemove, isGuest } = useApp();
   const { confirm, toast } = useFeedback();
   const navigate = useNavigate();
   const [poll, setPoll] = useState<Poll | null | undefined>(undefined);
@@ -132,7 +134,7 @@ function PollView({ id }: { id: number }) {
   }
 
   const voted = mine.size > 0;
-  const answering = !poll.closed && (!voted || changing);
+  const answering = !isGuest && !poll.closed && (!voted || changing);
   const voters = results[0]?.voters ?? 0;
   const canManage = poll.author_id === me?.id || canRemove;
 
@@ -230,7 +232,7 @@ function PollView({ id }: { id: number }) {
               </div>
               <div className="poll-foot">
                 <span className="muted small">{voters} ענו</span>
-                {!poll.closed && <button className="btn text" onClick={() => setChanging(true)}>שינוי התשובה</button>}
+                {!poll.closed && !isGuest && <button className="btn text" onClick={() => setChanging(true)}>שינוי התשובה</button>}
               </div>
             </div>
           )}

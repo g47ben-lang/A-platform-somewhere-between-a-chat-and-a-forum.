@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Navigate, NavLink, Route, Routes, useParams } from 'react-router-dom';
 import { useApp } from '../AppContext';
 import { supabase, SITE_NAME } from '../supabase';
 import { subscribe } from '../lib/realtime';
@@ -8,16 +9,71 @@ import type { Message, Reaction } from '../types';
 import ChatStream, { type StreamItem } from '../components/ChatStream';
 import { SpaceTile } from '../components/Avatar';
 import Icon from '../components/Icon';
+import Highlights from '../components/Highlights';
+import PollsPage from './PollsPage';
+import FunPage from './FunPage';
+import EventsPage from './EventsPage';
 
 const PAGE = 60;
 
 /**
- * Temporary guest view: while an admin keeps it open, visitors who are not logged in may read the
- * rooms. Read-only: no writing, reactions, profiles or private chats (the database enforces this too).
+ * Temporary guest view: while the owner keeps it open, visitors who are not logged in may read the
+ * rooms, polls, "עוד" and the calendar. Read-only: no writing, voting, reactions, profiles or private
+ * chats (the database enforces this too).
  */
 export default function GuestPage({ onLogin }: { onLogin: () => void }) {
-  const { rooms, nameOf, guestUntil } = useApp();
-  const [roomId, setRoomId] = useState<number | null>(null);
+  const { guestUntil } = useApp();
+  return (
+    <div className="guest">
+      <header className="topbar">
+        <span className="brand">
+          <span className="brand-mark"><Icon name="forum" filled size={22} /></span>
+          <span className="brand-name">{SITE_NAME}</span>
+        </span>
+        <div className="topbar-end">
+          <button className="btn filled" onClick={onLogin}>התחברות / הרשמה</button>
+        </div>
+      </header>
+
+      <div className="guest-notice" role="status">
+        <Icon name="visibility" size={22} />
+        <div>
+          <strong>צפייה זמנית ללא התחברות</strong>
+          <span>
+            באופן זמני, כדי להכיר את האתר לציבור, אפשר לצפות בצ'אטים גם בלי להתחבר. בהמשך האתר יחזור להיות פתוח לחברים
+            רשומים בלבד. כדי לכתוב, להגיב, להצביע או לשלוח הודעה אישית צריך להתחבר.
+          </span>
+          {guestUntil && <span className="muted small">פתוח לצפייה עד {fullDate(guestUntil)}</span>}
+        </div>
+      </div>
+
+      <nav className="guest-tabs" aria-label="מדורים">
+        <NavLink to="/" end className={({ isActive }) => `chip-btn ${isActive || location.hash.startsWith('#/room/') ? 'on' : ''}`}>
+          <Icon name="forum" size={18} /> צ'אט
+        </NavLink>
+        <NavLink to="/polls" className={({ isActive }) => `chip-btn ${isActive ? 'on' : ''}`}><Icon name="ballot" size={18} /> סקרים</NavLink>
+        <NavLink to="/more" className={({ isActive }) => `chip-btn ${isActive ? 'on' : ''}`}><Icon name="interests" size={18} /> וידויים ו"מי אמר את זה?"</NavLink>
+        <NavLink to="/events" className={({ isActive }) => `chip-btn ${isActive ? 'on' : ''}`}><Icon name="calendar_month" size={18} /> לוח אירועים</NavLink>
+      </nav>
+
+      <div className="guest-body">
+        <Routes>
+          <Route index element={<GuestChat onLogin={onLogin} />} />
+          <Route path="room/:roomId" element={<GuestChat onLogin={onLogin} />} />
+          <Route path="polls" element={<PollsPage />} />
+          <Route path="polls/:pollId" element={<PollsPage />} />
+          <Route path="more" element={<FunPage />} />
+          <Route path="events" element={<EventsPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </div>
+    </div>
+  );
+}
+
+function GuestChat({ onLogin }: { onLogin: () => void }) {
+  const { rooms, nameOf } = useApp();
+  const roomId = Number(useParams().roomId) || null;
   const room = rooms.find((r) => r.id === roomId) ?? rooms.find((r) => r.is_main) ?? rooms[0];
   const id = room?.id ?? null;
 
@@ -91,6 +147,7 @@ export default function GuestPage({ onLogin }: { onLogin: () => void }) {
         anonymous: m.anonymous,
         mine: false,
         system: m.system,
+        pollId: m.poll_id,
         createdAt: m.created_at,
         editedAt: m.edited_at,
         deleted: m.deleted,
@@ -109,36 +166,14 @@ export default function GuestPage({ onLogin }: { onLogin: () => void }) {
   }, [messages, reactions, likes, byId, nameOf]);
 
   return (
-    <div className="guest">
-      <header className="topbar">
-        <span className="brand">
-          <span className="brand-mark"><Icon name="forum" filled size={22} /></span>
-          <span className="brand-name">{SITE_NAME}</span>
-        </span>
-        <div className="topbar-end">
-          <button className="btn filled" onClick={onLogin}>התחברות / הרשמה</button>
-        </div>
-      </header>
-
-      <div className="guest-notice" role="status">
-        <Icon name="visibility" size={22} />
-        <div>
-          <strong>צפייה זמנית ללא התחברות</strong>
-          <span>
-            באופן זמני, כדי להכיר את האתר לציבור, אפשר לצפות בצ'אטים גם בלי להתחבר. בהמשך האתר יחזור להיות פתוח לחברים
-            רשומים בלבד. כדי לכתוב, להגיב או לשלוח הודעה אישית צריך להתחבר.
-          </span>
-          {guestUntil && <span className="muted small">פתוח לצפייה עד {fullDate(guestUntil)}</span>}
-        </div>
-      </div>
-
+    <>
       {rooms.length > 1 && (
         <nav className="guest-rooms" aria-label="חדרים">
           {rooms.map((r) => (
-            <button key={r.id} className={`chip-btn ${r.id === id ? 'on' : ''}`} onClick={() => setRoomId(r.id)}>
+            <NavLink key={r.id} to={r.is_main ? '/' : `/room/${r.id}`} className={`chip-btn ${r.id === id ? 'on' : ''}`}>
               {r.is_main ? <Icon name="home" size={18} /> : <SpaceTile name={r.name} size={20} announce={r.admin_only_post} />}
               {r.is_main ? "הצ'אט הראשי" : r.name}
-            </button>
+            </NavLink>
           ))}
         </nav>
       )}
@@ -152,6 +187,7 @@ export default function GuestPage({ onLogin }: { onLogin: () => void }) {
             </div>
           </header>
         )}
+        {room?.is_main && <div className="guest-highlights"><Highlights /></div>}
         <ChatStream
           items={rooms.length ? items : []}
           hasOlder={hasOlder}
@@ -170,6 +206,6 @@ export default function GuestPage({ onLogin }: { onLogin: () => void }) {
           </div>
         </div>
       </section>
-    </div>
+    </>
   );
 }

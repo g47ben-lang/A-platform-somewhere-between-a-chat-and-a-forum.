@@ -37,7 +37,7 @@ export function dateLabel(e: Pick<CalEvent, 'starts_on' | 'ends_on'>) {
 
 /** Yeshiva calendar: month grid, upcoming list, adding events, and settling clashes. */
 export default function EventsPage() {
-  const { me, isAdmin, nameOf } = useApp();
+  const { me, isAdmin, nameOf, isGuest } = useApp();
   const { toast } = useFeedback();
   const [events, setEvents] = useState<CalEvent[] | null>(null);
   const [month, setMonth] = useState(() => {
@@ -109,9 +109,9 @@ export default function EventsPage() {
             <h1>לוח אירועים</h1>
             <p className="muted">כל בחור יכול להוסיף אירוע. אם אירוע כבר קיים בתאריך אחר או בשם דומה, בעל האירוע או המנהלים מכריעים.</p>
           </div>
-          <button className="btn filled" onClick={() => { setNewDate(undefined); setEditing('new'); }}>
+          {!isGuest && <button className="btn filled" onClick={() => { setNewDate(undefined); setEditing('new'); }}>
             <Icon name="add" size={18} /> אירוע חדש
-          </button>
+          </button>}
         </header>
 
         {clashes.length > 0 && (
@@ -177,7 +177,7 @@ export default function EventsPage() {
                 <div
                   key={k}
                   className={`cal-day ${d.getMonth() !== month.getMonth() ? 'other' : ''} ${k === today ? 'today' : ''}`}
-                  onDoubleClick={() => { setNewDate(k); setEditing('new'); }}
+                  onDoubleClick={() => { if (isGuest) return; setNewDate(k); setEditing('new'); }}
                 >
                   <div className="cal-num"><span>{d.getDate()}</span><span className="cal-heb">{hebrewDayLetters(h.day)}{h.day === 1 ? ` ${h.month}` : ''}</span></div>
                   {list.slice(0, 3).map((e) => (

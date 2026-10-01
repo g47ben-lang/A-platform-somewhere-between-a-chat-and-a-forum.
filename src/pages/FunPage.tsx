@@ -52,7 +52,7 @@ interface CComment {
 }
 
 function Confessions() {
-  const { me, canRemove, isOwner, nameOf } = useApp();
+  const { me, canRemove, isOwner, nameOf, isGuest } = useApp();
   const { toast, confirm } = useFeedback();
   const [list, setList] = useState<Confession[] | null>(null);
   const [reactions, setReactions] = useState<CReaction[]>([]);
@@ -112,7 +112,7 @@ function Confessions() {
 
   return (
     <>
-      <form className="settings-card form-stack" onSubmit={post}>
+      {!isGuest && <form className="settings-card form-stack" onSubmit={post}>
         <label className="field">
           <span>וידוי בעילום שם</span>
           <textarea rows={3} maxLength={500} value={text} onChange={(e) => setText(e.target.value)} disabled={!me?.can_send_anonymous} />
@@ -123,7 +123,7 @@ function Confessions() {
           </span>
           <button className="btn filled" disabled={busy || !me?.can_send_anonymous || text.trim().length < 3}>פרסום</button>
         </div>
-      </form>
+      </form>}
 
       {list === null ? (
         <div className="spinner" />
@@ -133,7 +133,7 @@ function Confessions() {
         <ul className="confession-list">
           {list.map((c) => {
             const author = authors.get(c.id);
-            const mine = author === me?.id;
+            const mine = !!me && author === me.id;
             return (
               <li key={c.id} className="confession">
                 <div className="confession-head">
@@ -150,7 +150,7 @@ function Confessions() {
                     const n = reactions.filter((r) => r.confession_id === c.id && r.emoji === e).length;
                     const on = reactions.some((r) => r.confession_id === c.id && r.emoji === e && r.user_id === me?.id);
                     return (
-                      <button key={e} className={`reaction ${on ? 'mine' : ''}`} onClick={() => react(c, e)}>
+                      <button key={e} className={`reaction ${on ? 'mine' : ''}`} onClick={() => react(c, e)} disabled={isGuest}>
                         {e} {n > 0 && <span>{n}</span>}
                       </button>
                     );
@@ -167,7 +167,7 @@ function Confessions() {
 }
 
 function Comments({ confession, comments, reload }: { confession: Confession; comments: CComment[]; reload: () => void }) {
-  const { me, nameOf, canRemove } = useApp();
+  const { me, nameOf, canRemove, isGuest } = useApp();
   const { toast } = useFeedback();
   const [text, setText] = useState('');
 
@@ -195,10 +195,12 @@ function Comments({ confession, comments, reload }: { confession: Confession; co
           )}
         </div>
       ))}
-      <form onSubmit={send} className="nick-form">
-        <input value={text} maxLength={300} onChange={(e) => setText(e.target.value)} placeholder="תגובה…" />
-        <button className="btn text" disabled={!text.trim()}>שליחה</button>
-      </form>
+      {!isGuest && (
+        <form onSubmit={send} className="nick-form">
+          <input value={text} maxLength={300} onChange={(e) => setText(e.target.value)} placeholder="תגובה…" />
+          <button className="btn text" disabled={!text.trim()}>שליחה</button>
+        </form>
+      )}
     </div>
   );
 }
@@ -217,7 +219,7 @@ interface Quiz {
 }
 
 function WhoSaidIt() {
-  const { me, nameOf, profiles, canRemove } = useApp();
+  const { me, nameOf, profiles, canRemove, isGuest } = useApp();
   const { toast } = useFeedback();
   const [list, setList] = useState<Quiz[] | null>(null);
   const [board, setBoard] = useState<{ user_id: string; points: number }[]>([]);
@@ -285,7 +287,7 @@ function WhoSaidIt() {
                   {q.options.map((o) => {
                     const cls = known ? (o === q.answer ? 'right' : o === q.my_guess ? 'wrong' : '') : '';
                     return (
-                      <button key={o} className={`quiz-opt ${cls}`} disabled={known || closed} onClick={() => guess(q, o)}>
+                      <button key={o} className={`quiz-opt ${cls}`} disabled={known || closed || isGuest} onClick={() => guess(q, o)}>
                         <Avatar id={o} name={profiles.get(o)?.display_name} size={24} />
                         {nameOf(o)}
                         {known && o === q.answer && <Icon name="check" size={16} />}
