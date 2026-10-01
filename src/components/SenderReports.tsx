@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useApp } from '../AppContext';
 import { supabase } from '../supabase';
-import { clockTime, fullDate, timeAgo } from '../lib/format';
+import { clockTime, errorText, fullDate, timeAgo } from '../lib/format';
 import { BOT_NAME } from '../pages/BotPage';
 import Avatar from './Avatar';
 import { Modal } from './Feedback';
@@ -22,8 +22,15 @@ interface Complaint {
   user_id: string;
   complaint: string;
   quote: string;
+  suggestion: string;
   created_at: string;
   handled_at: string | null;
+}
+interface Rule {
+  id: number;
+  rule: string;
+  active: boolean;
+  created_at: string;
 }
 interface Overview {
   user_id: string;
@@ -49,9 +56,13 @@ export default function SenderReports() {
   const [overview, setOverview] = useState<Overview[]>([]);
   const [open, setOpen] = useState<{ userId: string; highlight?: number | null } | null>(null);
   const [complaints, setComplaints] = useState<Complaint[]>([]);
+  const [rules, setRules] = useState<Rule[]>([]);
+  const [fixing, setFixing] = useState<number | null>(null);
   const { toast } = useFeedback();
 
   const load = useCallback(async () => {
+    const { data: r } = await supabase.from('bot_prompt_rules').select('*').order('id', { ascending: false });
+    setRules((r as Rule[]) ?? []);
     const [a, o, c] = await Promise.all([
       supabase.from('bot_alerts').select('*').order('id', { ascending: false }).limit(100),
       supabase.rpc('bot_overview'),
@@ -75,10 +86,32 @@ export default function SenderReports() {
   // All open complaints as one text, to paste to whoever improves בוט.
   async function copyComplaints() {
     const text = [`תלונות על ${BOT_NAME} (${complaints.length}):`, '']
-      .concat(complaints.map((c, i) => `${i + 1}. ${fullDate(c.created_at)}\nהתלונה: ${c.complaint}${c.quote ? `\nמה ${BOT_NAME} ענה: "${c.quote}"` : ''}\n`))
+      .concat(complaints.map((c, i) => `${i + 1}. ${fullDate(c.created_at)}\nהתלונה: ${c.complaint}${c.quote ? `\nמה ${BOT_NAME} ענה: "${c.quote}"` : ''}${c.suggestion ? `\nהצעת שיפור: ${c.suggestion}` : ''}\n`))
       .join('\n');
     await navigator.clipboard.writeText(text);
     toast('כל התלונות הפתוחות הועתקו. אפשר להדביק אותן ולשלוח.');
+  }
+
+  // Approve one complaint: Gemini writes a short rule that is added to the bot's instructions from now on.
+  async function autoFix(c: Complaint) {
+    setFixing(c.id);
+    const { data, error } = await supabase.functions.invoke('bot', { body: { mode: 'improve', complaint_id: c.id } });
+    setFixing(null);
+    const r = data as { rule?: string; error?: string } | null;
+    if (error || !r?.rule) return toast(r?.error ?? 'התיקון האוטומטי לא הצליח. נסה שוב עוד מעט.', 'error');
+    toast(`נוסף תיקון: ${r.rule}`);
+    load();
+  }
+
+  async function dismiss(c: Complaint) {
+    await supabase.rpc('bot_complaints_handled', { p_ids: [c.id] });
+    load();
+  }
+
+  async function setRule(r: Rule, active: boolean | null) {
+    const { error } = await supabase.rpc('bot_rule_set', { p_id: r.id, p_active: active });
+    if (error) return toast(errorText(error), 'error');
+    load();
   }
 
   async function markHandled() {
@@ -114,19 +147,46 @@ export default function SenderReports() {
         ) : (
           <ul className="list">
             {complaints.map((c) => (
-              <li key={c.id}>
-                <button className="list-row" onClick={() => setOpen({ userId: c.user_id })}>
-                  <div className="list-main">
-                    <div className="list-title">{nameOf(c.user_id)}: {c.complaint}</div>
-                    {c.quote && <div className="list-sub">{BOT_NAME} ענה: "{c.quote}"</div>}
+              <li key={c.id} className="list-row static complaint-row">
+                <div className="list-main">
+                  <div className="list-title">{nameOf(c.user_id)}: {c.complaint}</div>
+                  {c.quote && <div className="list-sub">{BOT_NAME} ענה: "{c.quote}"</div>}
+                  {c.suggestion && <div className="list-sub suggestion"><Icon name="smart_toy" size={14} /> הצעת שיפור: {c.suggestion}</div>}
+                  <div className="row gap wrap">
+                    <button className="btn tonal small" disabled={fixing === c.id} onClick={() => autoFix(c)}>
+                      {fixing === c.id ? 'מתקן…' : 'אישור ותיקון אוטומטי'}
+                    </button>
+                    <button className="btn text small" onClick={() => setOpen({ userId: c.user_id })}>לשיחה</button>
+                    <button className="btn text small" onClick={() => dismiss(c)}>דחייה</button>
                   </div>
-                  <span className="muted small" title={fullDate(c.created_at)}>{timeAgo(c.created_at)}</span>
-                </button>
+                </div>
+                <span className="muted small" title={fullDate(c.created_at)}>{timeAgo(c.created_at)}</span>
               </li>
             ))}
           </ul>
         )}
       </section>
+
+      {rules.length > 0 && (
+        <section className="card-section">
+          <div className="section-head"><h2>תיקונים ש{BOT_NAME} למד ({rules.filter((r) => r.active).length} פעילים)</h2></div>
+          <p className="muted small">כל תיקון נוסף להוראות של {BOT_NAME} מרגע שאושר. כללי הפרטיות תמיד גוברים עליהם.</p>
+          <ul className="list">
+            {rules.map((r) => (
+              <li key={r.id} className={`list-row static ${r.active ? '' : 'muted-row'}`}>
+                <div className="list-main">
+                  <div className="list-title">{r.rule}</div>
+                  <div className="list-sub">{timeAgo(r.created_at)}{!r.active && ' · כבוי'}</div>
+                </div>
+                <div className="row gap">
+                  <button className="btn text small" onClick={() => setRule(r, !r.active)}>{r.active ? 'כיבוי' : 'הפעלה'}</button>
+                  <button className="btn text small danger" onClick={() => setRule(r, null)}>מחיקה</button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="card-section">
         <div className="section-head">

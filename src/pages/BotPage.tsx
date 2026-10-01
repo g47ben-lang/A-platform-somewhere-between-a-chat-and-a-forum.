@@ -118,7 +118,6 @@ export default function BotPage() {
         <span className="bot-avatar"><Icon name="smart_toy" size={24} /></span>
         <div className="pane-titles">
           <h1>{BOT_NAME}</h1>
-          <p>הבוט של הוועד: נייעס, פאנצ'ים ומה קורה בצ'אט</p>
         </div>
         {quota && (
           <button className="chip-btn" onClick={() => setKeyDialog(true)} title="המפתח שלי">
@@ -130,8 +129,8 @@ export default function BotPage() {
       <div className="notice bot-notice">
         <Icon name="lock" size={18} />
         <span>
-          על חבר בוט מספר רק מה שהחבר כתב בעצמו בצ'אט, או מה שהחבר אישר לספר, ואף פעם לא ממי שמע. הוא לא רואה צ'אטים אישיים. ההודעות
-          כאן נשלחות לשירות ה-AI של Google כדי לענות, ולכן לא כותבים פה דברים פרטיים. מנהל-העל רואה מדגם מהשיחות עם בוט, ובוט מדווח לו על דברים חריגים (למשל ניסיון לברר מי כתב אנונימית, בריונות או מצוקה).
+          {BOT_NAME} יכול לדווח לניהול האתר על כל מה שנכתב לו. בהמשך הוא יוגבל יותר בדיווחים; זה רק בתקופת ההקמה, כדי שיבין את
+          העניינים ויתאים את עצמו לתפקיד. (התשובות שלו נכתבות על ידי Gemini של Google.)
         </span>
       </div>
       <div className="stream bubbles bot-stream">
@@ -185,7 +184,7 @@ export default function BotPage() {
         </div>
       </div>
       <div className="composer-wrap">
-        {!mustAddKey && !blocked && <p className="bot-tip">תשובה בעייתית? כתוב לבוט "יש לי תלונה עליך".</p>}
+        {!mustAddKey && !blocked && <p className="bot-tip">תשובה בעייתית? כתוב לבוט "יש לי תלונה עליך" - הוא ירשום את התלונה ויציע לניהול איך להשתפר.</p>}
         {mustAddKey && !blocked ? (
           <KeyGuide onSaved={() => { setNeedKey(false); reloadQuota(); }} />
         ) : blocked ? (

@@ -2929,6 +2929,32 @@ create table if not exists bot_complaints (
   handled_at  timestamptz
 );
 alter table bot_complaints enable row level security;
+alter table bot_complaints add column if not exists suggestion text not null default '' check (char_length(suggestion) <= 1000);
+alter table bot_complaints add column if not exists rule_id bigint;
+
+-- Rules the bot learned from complaints the owner approved ("אישור ותיקון אוטומטי"): the Edge Function asks Gemini
+-- to turn the complaint into a short instruction and appends the active ones to the bot's prompt (below the privacy
+-- rules, which they can never override). The owner can switch a rule off or delete it.
+create table if not exists bot_prompt_rules (
+  id            bigint generated always as identity primary key,
+  rule          text not null check (char_length(rule) between 1 and 600),
+  complaint_id  bigint references bot_complaints on delete set null,
+  active        boolean not null default true,
+  created_at    timestamptz not null default now()
+);
+alter table bot_prompt_rules enable row level security;
+drop policy if exists bot_prompt_rules_owner on bot_prompt_rules;
+create policy bot_prompt_rules_owner on bot_prompt_rules for select using (is_owner());
+
+create or replace function bot_rule_set(p_id bigint, p_active boolean) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not is_owner() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
+  if p_active is null then delete from bot_prompt_rules where id = p_id;
+  else update bot_prompt_rules set active = p_active where id = p_id; end if;
+end $$;
+revoke execute on function bot_rule_set(bigint, boolean) from anon, public;
+grant execute on function bot_rule_set(bigint, boolean) to authenticated;
 drop policy if exists bot_complaints_owner on bot_complaints;
 create policy bot_complaints_owner on bot_complaints for select using (is_owner());
 

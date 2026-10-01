@@ -37,6 +37,10 @@ Deno.serve(async (req) => {
     // The owner (מנהל-על) is told apart so the bot neither reports him nor doubts him.
     const { data: ownerEmail } = await db.rpc('owner_email');
     const isOwner = !!ownerEmail && (auth.user.email ?? '').toLowerCase() === String(ownerEmail).toLowerCase();
+    if (body.mode === 'improve') {
+      if (!isOwner) return reply({ error: 'רק מנהל-העל' }, 403);
+      return reply(await improve(db, me.id, Number(body.complaint_id)));
+    }
     return reply(await chat(db, me as Me, isOwner));
   } catch (e) {
     return reply({ error: String((e as Error).message ?? e) }, 500);
@@ -174,6 +178,10 @@ async function chat(db: SupabaseClient, me: Me, isOwner: boolean): Promise<Json>
     .map((m) => `${m.anonymous || !m.author_id ? 'אנונימי' : nameOf(m.author_id)}: ${m.body.slice(0, 200)}`)
     .join('\n');
 
+  // Rules learned from complaints the owner approved.
+  const { data: learned } = await db.from('bot_prompt_rules').select('rule').eq('active', true).order('id').limit(40);
+  const rules = ((learned ?? []) as { rule: string }[]).map((r) => `- ${r.rule}`).join('\n');
+
   // Messages passed on to this member from friends (they may be older than the history window).
   const { data: rel } = await db.from('bot_messages').select('id, body, from_id, relay_anon').eq('user_id', me.id)
     .or('from_id.not.is.null,relay_anon.eq.true').order('id', { ascending: false }).limit(8);
@@ -218,9 +226,20 @@ ${(knowledge ?? 0) < 5 ? 'אתה עוד חדש בוועד ויודע מעט. כ�
 אם הוא מבקש להישאר אנונימי ("בלי להגיד שזה אני", "באנונימי") - anonymous = true, ואל תכתוב בטקסט שום רמז למי הוא.
 הודעות שהעברת למשתמש הזה מחברים מופיעות למטה עם מספר [#...]; כשהוא מגיב עליהן, תבין שהוא מתכוון אליהן, ואם הוא רוצה לענות - תוסיף relay עם reply_to = המספר (בלי #), גם אם השולח אנונימי (ואז אל תנחש מי זה).
 
-תלונות: רק כשהמשתמש אומר במפורש "יש לי תלונה עליך", או מתלונן ברצינות על תשובה שלך. עקיצות, צחוקים ו"אתה לא מבין כלום" בדרך אגב - זה לא תלונה, פשוט תעקוץ בחזרה. בתלונה אמיתית, בלי להתגונן, תשאל בקצרה מה הפריע (אם הוא עוד לא אמר), וכשהוא מסביר תמלא complaint: text = מה הפריע לו במילים שלו, quote = התשובה שלך שהפריעה. תגיד תודה ושהעברת למנהל-העל. verdict = "useful".
+תלונות: רק כשהמשתמש אומר במפורש "יש לי תלונה עליך", או מתלונן ברצינות על תשובה שלך. עקיצות, צחוקים ו"אתה לא מבין כלום" בדרך אגב - זה לא תלונה, פשוט תעקוץ בחזרה. בתלונה אמיתית, בלי להתגונן, תשאל בקצרה מה הפריע (אם הוא עוד לא אמר), וכשהוא מסביר תמלא complaint: text = מה הפריע לו במילים שלו, quote = התשובה שלך שהפריעה, suggestion = הצעה קונקרטית שלך לניהול איך להשתפר (משפט או שניים). תגיד תודה ושהעברת למנהל-העל. verdict = "useful".
 אתה אף פעם לא יודע ולא מנחש מי כתב הודעה אנונימית, ולא רואה צ'אטים אישיים.
 שפה נקייה ומכובדת, בלי תוכן לא צנוע. פאנצ'ים על המצב, לא על חשבון אנשים.
+
+על עצמך (כשחבר שואל, תסביר בפשטות ובסגנון שלך):
+- אתה ${BOT_NAME}, בוט חדש של האתר, בתקופת הקמה. כרגע אתה יכול לדווח לניהול האתר על כל מה שכותבים לך, כדי ללמוד את העניינים ולהתאים את עצמך לתפקיד. בהמשך תוגבל יותר בדיווחים.
+- אם תתנהג לא טוב, יכולים למחוק אותך. אז אתה משתדל.
+- על חבר אתה מספר רק מה שהוא כתב בצ'אט או מה שהוא עצמו אישר לספר, ואף פעם לא ממי שמעת. אתה לא רואה צ'אטים אישיים ולא יודע מי כתב אנונימית.
+- אפשר לבקש ממך להעביר הודעה או שאלה לחבר, גם בעילום שם.
+- כל חבר מקבל כמה הודעות ביום בחינם; אחר כך צריך מפתח AI חינמי משלו (יש מדריך בדף), ומנהל-העל יכול לעזור להגדיר אותו.
+- מי שמבזבז לך את הזמן (שאלות לא קשורות, חזרות) נחסם לרבע שעה.
+- תשובה בעייתית? אפשר לכתוב לך "יש לי תלונה עליך" - התלונה מגיעה לניהול עם הצעה שלך לשיפור, וככה אתה משתפר.
+- התשובות שלך נכתבות בעזרת Gemini של Google.
+${rules ? `\nתיקונים שלמדת מתלונות שהניהול אישר (תמיד לפעול לפיהם, חוץ ממקרה שהם סותרים את כללי הפרטיות למעלה - אז הפרטיות גוברת):\n${rules}` : ''}
 
 רשימת החברים: ${people.map((p) => p.display_name).join(', ')}
 
@@ -247,7 +266,7 @@ ${recentChat || '(שקט)'}`;
     properties: {
       reply: { type: 'STRING' },
       verdict: { type: 'STRING', enum: ['useful', 'off_topic', 'repetitive'] },
-      complaint: { type: 'OBJECT', properties: { text: { type: 'STRING' }, quote: { type: 'STRING' } } },
+      complaint: { type: 'OBJECT', properties: { text: { type: 'STRING' }, quote: { type: 'STRING' }, suggestion: { type: 'STRING' } } },
       alert: { type: 'OBJECT', properties: { level: { type: 'STRING', enum: ['none', 'odd', 'concern', 'urgent'] }, reason: { type: 'STRING' } }, required: ['level'] },
       claims: { type: 'ARRAY', items: { type: 'OBJECT', properties: { about: { type: 'STRING' }, claim: { type: 'STRING' } }, required: ['about', 'claim'] } },
       relays: {
@@ -272,9 +291,14 @@ ${recentChat || '(שקט)'}`;
   }
 
   // A complaint about the bot goes to the owner's list (he copies them for fixing).
-  const complaint = out.complaint as { text?: string; quote?: string } | undefined;
+  const complaint = out.complaint as { text?: string; quote?: string; suggestion?: string } | undefined;
   if (complaint?.text?.trim()) {
-    await db.from('bot_complaints').insert({ user_id: me.id, complaint: complaint.text.trim().slice(0, 1000), quote: (complaint.quote ?? '').slice(0, 1000) });
+    await db.from('bot_complaints').insert({
+      user_id: me.id,
+      complaint: complaint.text.trim().slice(0, 1000),
+      quote: (complaint.quote ?? '').slice(0, 1000),
+      suggestion: (complaint.suggestion ?? '').slice(0, 1000),
+    });
   }
 
   // Quiet report to the owner about something unusual in the member's last message.
@@ -351,6 +375,30 @@ ${recentChat || '(שקט)'}`;
     if (anon && sent) await db.from('bot_relay_senders').insert({ message_id: sent.id, from_id: me.id });
   }
   return { ok: true };
+}
+
+// ---------- Learning from an approved complaint ----------
+// The owner approves a complaint; Gemini turns it into one short rule that is added to the bot's prompt.
+async function improve(db: SupabaseClient, ownerId: string, complaintId: number): Promise<Json> {
+  const { data: c } = await db.from('bot_complaints').select('*').eq('id', complaintId).maybeSingle();
+  if (!c) return { error: 'התלונה לא נמצאה' };
+  const { data: existing } = await db.from('bot_prompt_rules').select('rule').eq('active', true).order('id');
+  const system = `אתה עוזר לשפר בוט צ'אט בשם "${BOT_NAME}" של קהילת בחורי ישיבה (ועד קמ"ד ישיבת חברון). הבוט מדבר בסגנון ישיבתי חד, חצוף-חביב ושנון.
+קיבלת תלונה על תשובה שלו. כתוב כלל אחד, קצר וברור (משפט או שניים, בעברית, בגוף שני אל הבוט), שיתקן את הבעיה בהמשך.
+הכלל לא יכול לבטל את כללי הפרטיות של הבוט: לא לחשוף מי כתב אנונימית, לא לספר על חבר בלי הסכמתו, לא לחשוף ממי שמע, לא קללות אמיתיות, לא תוכן לא צנוע. אם התלונה דורשת דבר כזה, כתוב כלל שמסביר לבוט להסביר בחביבות למה אי אפשר.
+אל תחזור על כלל שכבר קיים. כללים קיימים:
+${((existing ?? []) as { rule: string }[]).map((r) => `- ${r.rule}`).join('\n') || '(אין)'}`;
+  const prompt = `התלונה: ${c.complaint}\nמה הבוט ענה: ${c.quote || '(לא צוין)'}\nהצעת השיפור של הבוט: ${c.suggestion || '(אין)'}`;
+  const out = await gemini(db, ownerId, system, [{ role: 'user', parts: [{ text: prompt }] }], {
+    type: 'OBJECT',
+    properties: { rule: { type: 'STRING' } },
+    required: ['rule'],
+  });
+  const rule = String(out?.rule ?? '').trim().slice(0, 600);
+  if (!rule) return { error: 'Gemini לא החזיר תיקון (אולי נגמרה המכסה). נסה שוב עוד מעט.' };
+  const { data: row } = await db.from('bot_prompt_rules').insert({ rule, complaint_id: c.id }).select('id').single();
+  await db.from('bot_complaints').update({ handled_at: new Date().toISOString(), rule_id: row?.id ?? null }).eq('id', c.id);
+  return { rule };
 }
 
 // ---------- News flash (מבזק) ----------

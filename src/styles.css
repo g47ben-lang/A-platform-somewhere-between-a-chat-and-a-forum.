@@ -1415,3 +1415,6 @@ button.author:hover, .title-link:hover { text-decoration: underline; }
   .hero-flashes { order: 3; flex-basis: 100%; }
   .fi-arrow { display: none; }
 }
+.complaint-row { align-items: flex-start; }
+.complaint-row .list-main { display: flex; flex-direction: column; gap: 4px; }
+.list-sub.suggestion { display: inline-flex; align-items: center; gap: 4px; color: var(--primary); }
