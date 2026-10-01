@@ -2810,6 +2810,11 @@ declare
 begin
   if not is_active() or is_muted() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
   if char_length(b) not between 1 and 1000 then raise exception 'ההודעה ארוכה מדי'; end if;
+  -- The owner (emergency account) has no limits: no block, no hourly cap, no daily quota, no repeat strikes.
+  if is_owner() then
+    insert into bot_messages (user_id, role, body) values (auth.uid(), 'user', b) returning id into v;
+    return v;
+  end if;
   select blocked_until into until from bot_state where user_id = auth.uid() and blocked_until > now();
   if until is not null then
     raise exception 'בוט עסוק עכשיו בנייעס עם חבר''ה אחרים. נסה שוב בשעה %', to_char(until at time zone 'Asia/Jerusalem', 'HH24:MI');
@@ -3023,6 +3028,20 @@ language sql stable security definer set search_path = public as $$
 $$;
 revoke execute on function ai_claude_key_set(text), ai_claude_key_status() from anon, public;
 grant execute on function ai_claude_key_set(text), ai_claude_key_status() to authenticated;
+
+-- The owner approves a rule he worked out with Claude in the complaint dialog: saved and the complaint closed.
+create or replace function bot_rule_add(p_complaint bigint, p_rule text) returns bigint
+language plpgsql security definer set search_path = public as $$
+declare v bigint;
+begin
+  if not is_owner() then raise exception 'רק מנהל-העל' using errcode = '42501'; end if;
+  if char_length(trim(coalesce(p_rule, ''))) not between 5 and 600 then raise exception 'התיקון ריק או ארוך מדי'; end if;
+  insert into bot_prompt_rules (rule, complaint_id) values (trim(p_rule), p_complaint) returning id into v;
+  update bot_complaints set handled_at = now(), rule_id = v where id = p_complaint;
+  return v;
+end $$;
+revoke execute on function bot_rule_add(bigint, text) from anon, public;
+grant execute on function bot_rule_add(bigint, text) to authenticated;
 
 create or replace function bot_rule_set(p_id bigint, p_active boolean) returns void
 language plpgsql security definer set search_path = public as $$

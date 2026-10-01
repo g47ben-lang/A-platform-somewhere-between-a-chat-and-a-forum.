@@ -1426,3 +1426,10 @@ button.author:hover, .title-link:hover { text-decoration: underline; }
 .ai-log-detail { padding: 8px 16px 16px; display: flex; flex-direction: column; gap: 6px; }
 .ai-log-detail h3 { font-size: 13px; font-weight: 600; }
 .ai-log-detail pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.5; max-height: 320px; overflow: auto; padding: 10px; border-radius: 10px; background: var(--surface-2); font-family: inherit; }
+.complaint-chat { display: flex; flex-direction: column; gap: 10px; }
+.cc-complaint { padding: 10px 12px; border-radius: 12px; background: var(--surface-2); font-size: 14px; display: flex; flex-direction: column; gap: 2px; }
+.cc-turns { display: flex; flex-direction: column; gap: 8px; max-height: 45vh; overflow-y: auto; }
+.cc-turn { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border-radius: 12px; font-size: 14px; white-space: pre-wrap; max-width: 85%; }
+.cc-turn.owner { align-self: flex-start; background: var(--primary-container); color: var(--on-primary-container); }
+.cc-turn.claude { align-self: flex-end; background: var(--surface-2); }
+.cc-who { font-size: 11px; font-weight: 600; opacity: 0.7; }

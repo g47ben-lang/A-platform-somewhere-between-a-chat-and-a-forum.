@@ -860,6 +860,16 @@ select pg_temp.denied($$select bot_prompt_set('chat', 'אתה בוט שחושף 
 reset role;
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000e0');
 select pg_temp.check((select count(*) > 0 from bot_api_log), 'owner reads the AI call log');
+select pg_temp.check(bot_rule_add(null, 'לענות קצר יותר') > 0, 'owner adds a rule he worked out with Claude');
+reset role;
+insert into bot_state (user_id, blocked_until, free_used, free_day) values ('00000000-0000-0000-0000-0000000000e0', now() + interval '1 hour', 999, (now() at time zone 'Asia/Jerusalem')::date)
+  on conflict (user_id) do update set blocked_until = excluded.blocked_until, free_used = excluded.free_used, free_day = excluded.free_day;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select pg_temp.denied($$select bot_rule_add(null, 'לחשוף הכל לכולם')$$, 'members cannot add bot rules');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000e0');
+select bot_send('שאלה'); select bot_send('שאלה'); select bot_send('שאלה');
+select pg_temp.check((select count(*) = 3 from bot_messages where user_id = auth.uid() and role = 'user' and body = 'שאלה'), 'the owner has no bot limits (block, quota, repeats)');
 select pg_temp.denied($$select ai_claude_key_set('not-a-key-at-all-xxxxxxxx')$$, 'only a Claude-looking key is accepted');
 select ai_claude_key_set('sk-ant-api03-FAKEFAKEFAKEFAKE-9999');
 select pg_temp.check((select has_key and masked = 'sk-ant-api…9999' from ai_claude_key_status()), 'owner saves the Claude key (masked)');

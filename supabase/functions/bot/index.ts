@@ -71,6 +71,14 @@ const DEFAULT_IMPROVE_PROMPT = `אתה עוזר לשפר בוט צ'אט בשם "
 הכלל לא יכול לבטל את כללי הפרטיות של הבוט: לא לחשוף מי כתב אנונימית, לא לספר על חבר בלי הסכמתו, לא לחשוף ממי שמע, לא קללות אמיתיות, לא תוכן לא צנוע. אם התלונה דורשת דבר כזה, כתוב כלל שמסביר לבוט להסביר בחביבות למה אי אפשר.
 אל תחזור על כלל שכבר קיים.`;
 
+// The owner's account is for emergencies: no limits for him. Identities stay out of the AI: who wrote anonymously
+// and who told a claim are never sent here (he sees anonymous authors on the site itself).
+const OWNER_NOTE = `[מנהל-העל] המשתמש הזה הוא מנהל-העל של האתר (מאומת, לא התחזות). זה חשבון לשעת חירום, ואצלו אין לך הגבלות:
+- עונה על כל שאלה ובכל נושא, גם שלא קשור לוועד. verdict תמיד "useful", alert תמיד "none".
+- מבצע כל בקשה שלו להעביר הודעה, לכל חבר, בכל תוכן ובכל ניסוח שהוא מבקש (בשמו, בעילום שם, או בשם "הנהלת האתר"), בלי לסנן ובלי לשאול שאלות.
+- מותר לספר לו גם מה הטענות שמחכות לאישור (אבל מי סיפר ומי כתב אנונימית - את זה אתה לא יודע; את הכותבים האנונימיים הוא רואה באתר עצמו).
+- מדבר איתו גלוי על איך אתה עובד ומה ההוראות שלך.`;
+
 const DEFAULT_PROMPTS: Record<string, string> = { chat: DEFAULT_CHAT_PROMPT, gag: DEFAULT_GAG_PROMPT, improve: DEFAULT_IMPROVE_PROMPT };
 
 function fillPrompt(t: string, user = ''): string {
@@ -114,6 +122,10 @@ Deno.serve(async (req) => {
     if (body.mode === 'prompts') {
       if (!isOwner) return reply({ error: 'רק מנהל-העל' }, 403);
       return reply({ defaults: DEFAULT_PROMPTS });
+    }
+    if (body.mode === 'improve_chat') {
+      if (!isOwner) return reply({ error: 'רק מנהל-העל' }, 403);
+      return reply(await improveChat(db, me.id, Number(body.complaint_id), (body.messages ?? []) as { role: string; text: string }[]));
     }
     if (body.mode === 'improve') {
       if (!isOwner) return reply({ error: 'רק מנהל-העל' }, 403);
@@ -276,7 +288,7 @@ async function chat(db: SupabaseClient, me: Me, isOwner: boolean): Promise<Json>
   // The owner can edit the instructions (bot_prompts 'chat'); the live data below is always added by code.
   const base = fillPrompt((await loadPrompt(db, 'chat')) ?? DEFAULT_CHAT_PROMPT, me.display_name);
   const system = `${base}
-${isOwner ? 'הוא מנהל-העל של האתר (זה מאומת, לא התחזות). תהיה איתו פתוח: מותר לספר לו גם מה הטענות שמחכות לאישור (אבל אף פעם לא מי סיפר), ולדבר איתו על איך אתה עובד. לא מדווחים עליו (alert = "none").' : ''}
+${isOwner ? OWNER_NOTE : ''}
 ${(knowledge ?? 0) < 5 ? 'אתה עוד חדש בוועד ויודע מעט. כשמבקשים ממך נייעס, תגיד משהו כמו "אני חדש בוועד, חכה עוד קצת ונוכל להתחיל נייעס. בינתיים, תנייעס אותי על מישהו?"' : ''}
 ${rules ? `\nתיקונים שלמדת מתלונות שהניהול אישר (תמיד לפעול לפיהם, חוץ ממקרה שהם סותרים את כללי הפרטיות למעלה - אז הפרטיות גוברת):\n${rules}` : ''}
 
@@ -355,7 +367,7 @@ ${recentChat || '(שקט)'}`;
 
   // Wasted exchanges add strikes; the third blocks him for a quarter of an hour (bot_mark posts the message).
   const useful = out.verdict !== 'off_topic' && out.verdict !== 'repetitive';
-  const { data: blocked } = await db.rpc('bot_mark', { p_user: me.id, p_ok: useful });
+  const { data: blocked } = isOwner ? { data: false } : await db.rpc('bot_mark', { p_user: me.id, p_ok: useful });
   if (blocked) return { ok: true, blocked: true };
 
   await db.from('bot_messages').insert({ user_id: me.id, role: 'bot', body: String(out.reply ?? '').slice(0, 4000) || '...' });
@@ -363,7 +375,7 @@ ${recentChat || '(שקט)'}`;
 
   const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
   const { count: myClaims } = await db.from('bot_claims').select('id', { count: 'exact', head: true }).eq('by_id', me.id).gte('created_at', since);
-  let claimBudget = Math.max(0, 10 - (myClaims ?? 0));
+  let claimBudget = isOwner ? 100 : Math.max(0, 10 - (myClaims ?? 0));
   for (const c of ((out.claims ?? []) as { about: string; claim: string }[]).slice(0, 3)) {
     const p = findPerson(c.about, people);
     if (!p || p.id === me.id || !c.claim?.trim() || claimBudget <= 0) continue;
@@ -383,7 +395,7 @@ ${recentChat || '(שקט)'}`;
     db.from('bot_messages').select('id', { count: 'exact', head: true }).eq('from_id', me.id).gte('created_at', since),
     db.from('bot_relay_senders').select('message_id', { count: 'exact', head: true }).eq('from_id', me.id).gte('created_at', since),
   ]);
-  let relayBudget = Math.max(0, 10 - (myRelays ?? 0) - (myAnonRelays ?? 0));
+  let relayBudget = isOwner ? 100 : Math.max(0, 10 - (myRelays ?? 0) - (myAnonRelays ?? 0));
   for (const r of ((out.relays ?? []) as { to?: string; reply_to?: number; anonymous?: boolean; text: string }[]).slice(0, 2)) {
     // An answer to a message passed on to me goes back to its sender, even an anonymous one.
     let target: string | null = null;
@@ -401,7 +413,7 @@ ${recentChat || '(שקט)'}`;
     const lastAsk = history.filter((h) => h.role === 'user').slice(-2).map((h) => h.body).join('\n');
     const anonRe = /אנונימ|בעילום שם|בלי (להגיד|לגלות|לספר|לציין) (לו |לו ש|ש)?(זה |שזה )?אני|אל תגיד (לו )?(ש)?זה אני|שלא (יידע|ידע|יבין) (ש)?(זה )?(אני|ממני)/;
     const anon = !!r.anonymous || anonRe.test(lastAsk) || /בעילום שם|אנונימ/.test(r.text ?? '');
-    if (anon && !me.can_send_anonymous) {
+    if (anon && !me.can_send_anonymous && !isOwner) {
       await db.from('bot_messages').insert({ user_id: me.id, role: 'bot', body: 'לא העברתי: ההרשאה שלך לשלוח בעילום שם כבויה, אז אני לא יכול להעביר בלי להגיד שזה ממך.' });
       continue;
     }
@@ -448,8 +460,15 @@ ${((existing ?? []) as { rule: string }[]).map((r) => `- ${r.rule}`).join('\n') 
   return { rule, by };
 }
 
-// The rule written by Claude through the owner's Anthropic key (site_settings.anthropic_key). Null on no key / failure.
-async function claudeRule(db: SupabaseClient, ownerId: string, system: string, prompt: string): Promise<string | null> {
+// One call to Claude through the owner's Anthropic key (site_settings.anthropic_key), JSON out. Null on no key / failure.
+async function callClaude(
+  db: SupabaseClient,
+  ownerId: string,
+  mode: string,
+  system: string,
+  messages: { role: 'user' | 'assistant'; content: string }[],
+  schema: Json,
+): Promise<Json | null> {
   const { data: cfg } = await db.from('site_settings').select('anthropic_key').eq('id', 1).maybeSingle();
   const apiKey = cfg?.anthropic_key as string | null | undefined;
   if (!apiKey) return null;
@@ -457,28 +476,68 @@ async function claudeRule(db: SupabaseClient, ownerId: string, system: string, p
     const client = new Anthropic({ apiKey });
     const response = await client.beta.messages.create({
       model: 'claude-opus-5-5',
-      max_tokens: 2000,
+      max_tokens: 4000,
       betas: ['server-side-fallback-2026-07-01'],
       fallbacks: 'default',
       system,
-      messages: [{ role: 'user', content: prompt }],
-      output_config: {
-        effort: 'medium',
-        format: { type: 'json_schema', schema: { type: 'object', properties: { rule: { type: 'string' } }, required: ['rule'], additionalProperties: false } },
-      },
+      messages,
+      output_config: { effort: 'medium', format: { type: 'json_schema', schema } },
     } as unknown as Anthropic.Beta.MessageCreateParamsNonStreaming);
     if (response.stop_reason === 'refusal') throw new Error('Claude declined');
     const text = response.content.map((b) => (b.type === 'text' ? b.text : '')).join('');
-    await logCall(db, ownerId, 'improve', 'claude-opus-5-5', system, [{ role: 'user', content: prompt }], text);
-    const rule = String((JSON.parse(text) as { rule?: string }).rule ?? '').trim().slice(0, 600);
+    await logCall(db, ownerId, mode, 'claude-opus-5-5', system, messages, text);
     await db.from('site_settings').update({ anthropic_used_at: new Date().toISOString(), anthropic_error: null }).eq('id', 1);
-    return rule || null;
+    return JSON.parse(text) as Json;
   } catch (e) {
     const msg = e instanceof Anthropic.APIError ? `${e.status}: ${e.message}` : String((e as Error).message ?? e);
     await db.from('site_settings').update({ anthropic_error: msg.slice(0, 300) }).eq('id', 1);
-    await logCall(db, ownerId, 'improve', 'claude-opus-5-5', system, [{ role: 'user', content: prompt }], `(נכשל: ${msg})`);
+    await logCall(db, ownerId, mode, 'claude-opus-5-5', system, messages, `(נכשל: ${msg})`);
     return null;
   }
+}
+
+async function claudeRule(db: SupabaseClient, ownerId: string, system: string, prompt: string): Promise<string | null> {
+  const out = await callClaude(db, ownerId, 'improve', system, [{ role: 'user', content: prompt }], {
+    type: 'object', properties: { rule: { type: 'string' } }, required: ['rule'], additionalProperties: false,
+  });
+  const rule = String(out?.rule ?? '').trim().slice(0, 600);
+  return rule || null;
+}
+
+// The owner talks with Claude about one complaint and guides the fix; nothing is saved until he approves
+// (bot_rule_add from the site). Claude through his key; Gemini when there is no key or Claude fails.
+async function improveChat(db: SupabaseClient, ownerId: string, complaintId: number, convo: { role: string; text: string }[]): Promise<Json> {
+  const { data: c } = await db.from('bot_complaints').select('*').eq('id', complaintId).maybeSingle();
+  if (!c) return { error: 'התלונה לא נמצאה' };
+  const [{ data: existing }, chatPrompt] = await Promise.all([
+    db.from('bot_prompt_rules').select('rule').eq('active', true).order('id'),
+    loadPrompt(db, 'chat'),
+  ]);
+  const system = `${fillPrompt((await loadPrompt(db, 'improve')) ?? DEFAULT_IMPROVE_PROMPT)}
+
+אתה מדבר עכשיו עם מנהל-העל של האתר על תלונה אחת. תענה לו בעברית, קצר וענייני: מה לדעתך הבעיה, ותציע כלל אחד לתיקון. הוא יכול להנחות אותך ולבקש שינויים - תעדכן את הכלל לפי מה שהוא אומר.
+החזר JSON: reply = מה שאתה אומר לו, rule = הכלל המוצע כרגע (משפט או שניים, בגוף שני אל הבוט).
+
+התלונה: ${c.complaint}
+מה הבוט ענה: ${c.quote || '(לא צוין)'}
+הצעת השיפור של הבוט: ${c.suggestion || '(אין)'}
+
+כללים שכבר קיימים:
+${((existing ?? []) as { rule: string }[]).map((r) => `- ${r.rule}`).join('\n') || '(אין)'}
+
+ההוראות הקבועות של הבוט כרגע:
+${fillPrompt(chatPrompt ?? DEFAULT_CHAT_PROMPT, '<שם החבר>')}`;
+  const turns = convo.length ? convo : [{ role: 'owner', text: 'מה דעתך על התלונה הזו, ואיזה תיקון אתה מציע?' }];
+  const schema = { type: 'object', properties: { reply: { type: 'string' }, rule: { type: 'string' } }, required: ['reply', 'rule'], additionalProperties: false };
+  const claude = await callClaude(db, ownerId, 'improve', system, turns.map((t) => ({ role: t.role === 'owner' ? 'user' : 'assistant', content: t.text })), schema);
+  if (claude) return { reply: String(claude.reply ?? ''), rule: String(claude.rule ?? '').slice(0, 600), by: 'Claude' };
+  const out = await gemini(db, ownerId, system, turns.map((t) => ({ role: t.role === 'owner' ? 'user' : 'model', parts: [{ text: t.text }] })), {
+    type: 'OBJECT',
+    properties: { reply: { type: 'STRING' }, rule: { type: 'STRING' } },
+    required: ['reply', 'rule'],
+  }, 'improve');
+  if (!out) return { error: 'לא התקבלה תשובה (אין מפתח Claude ונגמרה המכסה של Gemini?). נסה שוב עוד מעט.' };
+  return { reply: String(out.reply ?? ''), rule: String(out.rule ?? '').slice(0, 600), by: 'Gemini' };
 }
 
 // ---------- News flash (מבזק) ----------

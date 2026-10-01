@@ -7,6 +7,7 @@ import Avatar from './Avatar';
 import { Modal } from './Feedback';
 import Icon from './Icon';
 import { useFeedback } from './Feedback';
+import ComplaintChat from './ComplaintChat';
 
 interface Alert {
   id: number;
@@ -58,6 +59,7 @@ export default function SenderReports() {
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [rules, setRules] = useState<Rule[]>([]);
   const [fixing, setFixing] = useState<number | null>(null);
+  const [talking, setTalking] = useState<Complaint | null>(null);
   const { toast } = useFeedback();
 
   const load = useCallback(async () => {
@@ -156,7 +158,8 @@ export default function SenderReports() {
                     <button className="btn tonal small" disabled={fixing === c.id} onClick={() => autoFix(c)}>
                       {fixing === c.id ? 'מתקן…' : 'אישור ותיקון אוטומטי'}
                     </button>
-                    <button className="btn text small" onClick={() => setOpen({ userId: c.user_id })}>לשיחה</button>
+                    <button className="btn tonal small" onClick={() => setTalking(c)}><Icon name="smart_toy" size={16} /> שיחה עם Claude על התיקון</button>
+                    <button className="btn text small" onClick={() => setOpen({ userId: c.user_id })}>לשיחה עם החבר</button>
                     <button className="btn text small" onClick={() => dismiss(c)}>דחייה</button>
                   </div>
                 </div>
@@ -252,6 +255,7 @@ export default function SenderReports() {
         )}
       </section>
 
+      {talking && <ComplaintChat complaint={talking} onClose={() => setTalking(null)} onSaved={load} />}
       {open && <Conversation userId={open.userId} onClose={() => setOpen(null)} />}
     </>
   );
