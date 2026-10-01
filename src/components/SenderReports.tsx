@@ -52,7 +52,7 @@ const LEVEL: Record<Alert['level'], string> = { odd: 'מוזר', concern: 'מד�
 
 /** Owner-only: בוט's reports on unusual conversations, and a sample of conversations with it. */
 export default function SenderReports() {
-  const { nameOf } = useApp();
+  const { nameOf, me } = useApp();
   const [alerts, setAlerts] = useState<Alert[] | null>(null);
   const [overview, setOverview] = useState<Overview[]>([]);
   const [open, setOpen] = useState<{ userId: string; highlight?: number | null } | null>(null);
@@ -72,14 +72,23 @@ export default function SenderReports() {
       supabase.from('bot_complaints').select('*').is('handled_at', null).order('id'),
     ]);
     setComplaints((c.data as Complaint[]) ?? []);
-    const list = (a.data as Alert[]) ?? [];
+    let list = (a.data as Alert[]) ?? [];
+    let err = a.error;
+    if (err) {
+      // bot_alert_list missing (schema.sql not pasted yet) or the request was blocked: read the table directly (owner-only RLS).
+      const t = await supabase.from('bot_alerts').select('*').order('id', { ascending: false }).limit(100);
+      if (!t.error) {
+        list = ((t.data as Alert[]) ?? []).filter((x) => x.user_id !== me?.id);
+        err = null;
+      }
+    }
     setAlerts(list);
-    setLoadError(a.error ? errorText(a.error) : null);
+    setLoadError(err ? `${errorText(err)}${err.code ? ` (${err.code})` : ''}` : null);
     // Opening the tab is seeing them: the badge clears; this view still marks which ones were new.
     const fresh = list.filter((x) => !x.seen_at).map((x) => x.id);
     if (fresh.length) supabase.rpc('bot_alerts_seen', { p_ids: fresh }).then(() => window.dispatchEvent(new Event('bot-alerts-seen')));
     setOverview((o.data as Overview[]) ?? []);
-  }, []);
+  }, [me?.id]);
   useEffect(() => {
     load();
   }, [load]);
