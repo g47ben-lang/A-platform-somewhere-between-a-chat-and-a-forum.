@@ -17,8 +17,9 @@ import FeedbackAdmin from '../components/FeedbackAdmin';
 import AdminStats from '../components/AdminStats';
 import GuestViewAdmin from '../components/GuestViewAdmin';
 import AiKeysAdmin from '../components/AiKeysAdmin';
+import SenderReports from '../components/SenderReports';
 
-type Tab = 'members' | 'preapproved' | 'anonymous' | 'rooms' | 'media' | 'owner' | 'feedback' | 'stats' | 'guest' | 'ai';
+type Tab = 'members' | 'preapproved' | 'anonymous' | 'rooms' | 'media' | 'owner' | 'feedback' | 'stats' | 'guest' | 'ai' | 'sender';
 type ProfilePatch = Partial<Pick<Profile, 'status' | 'role' | 'accept_anonymous' | 'can_send_anonymous' | 'join_seen'>>;
 
 export default function AdminPage() {
@@ -31,6 +32,11 @@ export default function AdminPage() {
   const [filter, setFilter] = useState('');
   const [editRoom, setEditRoom] = useState<Room | null>(null);
   const [newRoom, setNewRoom] = useState(false);
+  // Owner: new reports from סנדר.
+  const [botAlerts, setBotAlerts] = useState(0);
+  useEffect(() => {
+    if (isOwner) supabase.rpc('bot_alert_count').then(({ data }) => setBotAlerts((data as number) ?? 0));
+  }, [isOwner, tab]);
 
   const all = [...profiles.values()];
   const pending = all.filter((p) => p.status === 'pending').sort((a, b) => a.created_at.localeCompare(b.created_at));
@@ -119,6 +125,12 @@ export default function AdminPage() {
           <button className={tab === 'preapproved' ? 'on' : ''} onClick={() => setTab('preapproved')} role="tab">
             <Icon name="check" size={20} /> אישור מראש
           </button>
+          {isOwner && (
+            <button className={tab === 'sender' ? 'on' : ''} onClick={() => setTab('sender')} role="tab">
+              <Icon name="flag" size={20} /> סנדר מדווח
+              {botAlerts > 0 && <span className="badge-count">{botAlerts}</span>}
+            </button>
+          )}
           {isOwner && (
             <button className={tab === 'ai' ? 'on' : ''} onClick={() => setTab('ai')} role="tab">
               <Icon name="smart_toy" size={20} /> סנדר (AI)
@@ -312,6 +324,7 @@ export default function AdminPage() {
         {tab === 'stats' && <AdminStats />}
         {tab === 'guest' && isOwner && <GuestViewAdmin />}
         {tab === 'ai' && isOwner && <AiKeysAdmin />}
+        {tab === 'sender' && isOwner && <SenderReports />}
 
         {tab === 'preapproved' && (
           <>

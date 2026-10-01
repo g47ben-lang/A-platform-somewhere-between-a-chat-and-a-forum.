@@ -1368,3 +1368,13 @@ button.author:hover, .title-link:hover { text-decoration: underline; }
   .bot-fab { bottom: 96px; right: 14px; height: 48px; padding: 0 12px; border-radius: 16px; }
   .bot-fab-label { display: none; }
 }
+
+/* סנדר's reports (owner) */
+.alert-level { flex-shrink: 0; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 8px; background: var(--surface-3); }
+.alert-level.l-concern { background: #fde293; color: #5c3c00; }
+.alert-level.l-urgent { background: var(--danger-container); color: var(--danger); }
+.list-row.unread .list-title { font-weight: 700; }
+.bot-review { display: flex; flex-direction: column; gap: 8px; max-height: 65vh; overflow-y: auto; }
+.review-line { display: grid; grid-template-columns: 110px minmax(0, 1fr) auto; gap: 10px; align-items: baseline; font-size: 14px; padding: 6px 8px; border-radius: 8px; }
+.review-line.bot { background: var(--surface-2); }
+.review-line span { white-space: pre-wrap; word-break: break-word; }

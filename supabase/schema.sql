@@ -2745,6 +2745,64 @@ end $$;
 drop policy if exists bot_messages_own on bot_messages;
 create policy bot_messages_own on bot_messages for select using (user_id = auth.uid() or is_owner());
 
+-- ---------- סנדר reports to the owner ----------
+-- סנדר flags unusual conversations (odd requests, attempts to find out who wrote anonymously, bullying, distress,
+-- threats...) with the line that worried it. Owner only: the "סנדר מדווח" admin tab, plus a phone push for serious
+-- ones. The owner can also read a sample of conversations (bot_messages is readable by the owner; members are told).
+create table if not exists bot_alerts (
+  id          bigint generated always as identity primary key,
+  user_id     uuid not null references profiles on delete cascade,
+  message_id  bigint references bot_messages on delete set null,
+  level       text not null check (level in ('odd', 'concern', 'urgent')),
+  reason      text not null check (char_length(reason) between 1 and 500),
+  excerpt     text not null default '' check (char_length(excerpt) <= 1000),
+  created_at  timestamptz not null default now(),
+  seen_at     timestamptz
+);
+create index if not exists bot_alerts_new_idx on bot_alerts (id) where seen_at is null;
+alter table bot_alerts enable row level security;
+drop policy if exists bot_alerts_owner on bot_alerts;
+create policy bot_alerts_owner on bot_alerts for select using (is_owner());
+
+-- Serious reports reach the owner's phone at once.
+create or replace function bot_alert_push() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare o uuid := (select u.id from auth.users u where lower(u.email) = owner_email() limit 1);
+begin
+  if o is null or new.level = 'odd' then return new; end if;
+  perform queue_push(o, 'on_dm', 'bot-alert:' || new.id,
+    case when new.level = 'urgent' then 'סנדר: דחוף' else 'סנדר מדווח' end,
+    (select display_name from profiles where id = new.user_id) || ': ' || new.reason, '#/admin?tab=sender');
+  perform push_kick();
+  return new;
+end $$;
+drop trigger if exists bot_alert_push on bot_alerts;
+create trigger bot_alert_push after insert on bot_alerts for each row execute function bot_alert_push();
+
+create or replace function bot_alerts_seen(p_ids bigint[]) returns void
+language sql security definer set search_path = public as $$
+  update bot_alerts set seen_at = now() where id = any(p_ids) and seen_at is null and is_owner();
+$$;
+
+create or replace function bot_alert_count() returns int
+language sql stable security definer set search_path = public as $$
+  select count(*)::int from bot_alerts where seen_at is null and is_owner();
+$$;
+
+-- Owner: who talks to סנדר, how much, strikes and blocks (to pick conversations to look at).
+create or replace function bot_overview()
+returns table (user_id uuid, messages int, last_at timestamptz, strikes int, blocked_until timestamptz, alerts int)
+language sql stable security definer set search_path = public as $$
+  select m.user_id, count(*)::int, max(m.created_at), coalesce(max(s.strikes), 0), max(s.blocked_until),
+         (select count(*)::int from bot_alerts a where a.user_id = m.user_id)
+    from bot_messages m left join bot_state s on s.user_id = m.user_id
+   where m.role = 'user' and is_owner()
+   group by m.user_id order by max(m.created_at) desc;
+$$;
+
+revoke execute on function bot_alerts_seen(bigint[]), bot_alert_count(), bot_overview() from anon, public;
+grant execute on function bot_alerts_seen(bigint[]), bot_alert_count(), bot_overview() to authenticated;
+
 -- ---------- Row Level Security ----------
 alter table profiles         enable row level security;
 alter table channels         enable row level security;

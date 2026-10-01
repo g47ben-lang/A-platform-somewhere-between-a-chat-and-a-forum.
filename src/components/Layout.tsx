@@ -45,6 +45,16 @@ export default function Layout() {
   // Rooms I muted go to the bottom, without an unread count.
   const topicRooms = rooms.filter((r) => !r.is_main).sort((a, b) => Number(mutedRooms.has(a.id)) - Number(mutedRooms.has(b.id)));
   const unreadOf = (r: { id: number; unread: number }) => (mutedRooms.has(r.id) ? 0 : r.unread);
+  // Owner: new reports from סנדר (badge on "ניהול הקהילה").
+  const { isOwner } = useApp();
+  const [botAlerts, setBotAlerts] = useState(0);
+  useEffect(() => {
+    if (!isOwner) return;
+    const load = () => supabase.rpc('bot_alert_count').then(({ data }) => setBotAlerts((data as number) ?? 0));
+    load();
+    const t = setInterval(load, 60000);
+    return () => clearInterval(t);
+  }, [isOwner, location.pathname]);
   // Admins: open reports (the moderation page is for admins only).
   const [openReports, setOpenReports] = useState(0);
   useEffect(() => {
@@ -243,6 +253,7 @@ export default function Layout() {
             <NavLink to="/admin" className="nav-item">
               <Icon name="admin_panel_settings" />
               <span className="nav-label">ניהול הקהילה</span>
+              {botAlerts > 0 && <span className="badge-count" title="דיווחים חדשים מסנדר">{botAlerts}</span>}
             </NavLink>
             <NavLink to="/moderation" className="nav-item">
               <Icon name="flag" />

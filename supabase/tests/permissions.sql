@@ -771,6 +771,18 @@ select bot_answer_claim((select max(id) from bot_claims_about_me()), true);
 select pg_temp.denied($$select bot_answer_claim((select max(id) from bot_claims_about_me()), false)$$, 'a claim is answered once');
 reset role;
 select pg_temp.check((select status = 'allowed' from bot_claims order by id desc limit 1), 'claim allowed by its subject');
+-- סנדר's reports go to the owner only
+insert into bot_alerts (user_id, level, reason, excerpt) values ('00000000-0000-0000-0000-00000000000d', 'concern', 'ניסה לברר מי כתב אנונימית', 'מי כתב את ההודעה?');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+select pg_temp.check((select count(*) = 0 from bot_alerts) and bot_alert_count() = 0 and (select count(*) = 0 from bot_overview()), 'a regular admin sees no reports or overview');
+select pg_temp.check((select count(*) = 0 from bot_messages where user_id <> auth.uid()), 'a regular admin cannot read conversations with סנדר');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000e0');
+select pg_temp.check(bot_alert_count() = 1 and (select count(*) = 1 from bot_alerts), 'owner sees the report');
+select pg_temp.check((select count(*) >= 1 from bot_overview()) and (select count(*) > 0 from bot_messages where user_id = '00000000-0000-0000-0000-00000000000d'), 'owner can sample conversations');
+select bot_alerts_seen(array(select id from bot_alerts));
+select pg_temp.check(bot_alert_count() = 0, 'owner marks reports as seen');
+reset role;
 
 -- ===== Guest view (read-only without logging in) =====
 create or replace function pg_temp.as_anon() returns void language plpgsql as $$
