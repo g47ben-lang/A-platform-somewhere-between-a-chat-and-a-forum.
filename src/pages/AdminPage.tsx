@@ -20,9 +20,10 @@ import AiKeysAdmin from '../components/AiKeysAdmin';
 import SenderReports from '../components/SenderReports';
 import MemberKeysAdmin from '../components/MemberKeys';
 import ClaudeKeyAdmin from '../components/ClaudeKeyAdmin';
+import AiPromptsAdmin from '../components/AiPromptsAdmin';
 import ModerationPage from './ModerationPage';
 
-type Tab = 'members' | 'preapproved' | 'anonymous' | 'rooms' | 'media' | 'owner' | 'feedback' | 'stats' | 'guest' | 'ai' | 'sender' | 'moderation';
+type Tab = 'members' | 'preapproved' | 'anonymous' | 'rooms' | 'media' | 'owner' | 'feedback' | 'stats' | 'guest' | 'ai' | 'sender' | 'moderation' | 'prompts';
 type ProfilePatch = Partial<Pick<Profile, 'status' | 'role' | 'accept_anonymous' | 'can_send_anonymous' | 'join_seen'>>;
 
 export default function AdminPage() {
@@ -152,6 +153,11 @@ export default function AdminPage() {
             <button className={tab === 'sender' ? 'on' : ''} onClick={() => setTab('sender')} role="tab">
               <Icon name="flag" size={20} /> בוט מדווח
               {botAlerts > 0 && <span className="badge-count">{botAlerts}</span>}
+            </button>
+          )}
+          {isOwner && (
+            <button className={tab === 'prompts' ? 'on' : ''} onClick={() => setTab('prompts')} role="tab">
+              <Icon name="edit" size={20} /> פקודות ל-AI
             </button>
           )}
           {isOwner && (
@@ -351,6 +357,7 @@ export default function AdminPage() {
         {tab === 'guest' && isOwner && <GuestViewAdmin />}
         {tab === 'ai' && isOwner && <><AiKeysAdmin /><ClaudeKeyAdmin /><MemberKeysAdmin /></>}
         {tab === 'sender' && isOwner && <SenderReports />}
+        {tab === 'prompts' && isOwner && <AiPromptsAdmin />}
         {tab === 'moderation' && <ModerationPage embedded />}
 
         {tab === 'preapproved' && (

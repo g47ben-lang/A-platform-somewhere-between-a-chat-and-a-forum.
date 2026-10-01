@@ -1422,3 +1422,7 @@ button.author:hover, .title-link:hover { text-decoration: underline; }
 .key-guide.compact .key-why { background: var(--surface-2); }
 .key-why summary { cursor: pointer; font-weight: 600; }
 .key-why ul { margin-top: 6px; padding-inline-start: 18px; display: flex; flex-direction: column; gap: 4px; }
+.prompt-editor { width: 100%; font-family: inherit; font-size: 13px; line-height: 1.6; padding: 12px; margin: 8px 0; border-radius: 12px; border: 1px solid var(--outline); background: var(--surface); color: var(--text); resize: vertical; }
+.ai-log-detail { padding: 8px 16px 16px; display: flex; flex-direction: column; gap: 6px; }
+.ai-log-detail h3 { font-size: 13px; font-weight: 600; }
+.ai-log-detail pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.5; max-height: 320px; overflow: auto; padding: 10px; border-radius: 10px; background: var(--surface-2); font-family: inherit; }

@@ -2946,6 +2946,57 @@ alter table bot_prompt_rules enable row level security;
 drop policy if exists bot_prompt_rules_owner on bot_prompt_rules;
 create policy bot_prompt_rules_owner on bot_prompt_rules for select using (is_owner());
 
+-- The owner edits the bot's instructions (admin tab "פקודות ל-AI"): one row per kind ('chat', 'gag', 'improve');
+-- no row = the default in the Edge Function. Live data (members, recent chat, learned rules) is always added by code.
+create table if not exists bot_prompts (
+  key         text primary key check (key in ('chat', 'gag', 'improve')),
+  body        text not null check (char_length(body) between 20 and 30000),
+  updated_at  timestamptz not null default now(),
+  updated_by  uuid references profiles on delete set null
+);
+alter table bot_prompts enable row level security;
+drop policy if exists bot_prompts_owner on bot_prompts;
+create policy bot_prompts_owner on bot_prompts for select using (is_owner());
+
+create or replace function bot_prompt_set(p_key text, p_body text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not is_owner() then raise exception 'רק מנהל-העל' using errcode = '42501'; end if;
+  if nullif(trim(coalesce(p_body, '')), '') is null then
+    delete from bot_prompts where key = p_key;  -- back to the default
+  else
+    insert into bot_prompts (key, body, updated_by) values (p_key, p_body, auth.uid())
+    on conflict (key) do update set body = excluded.body, updated_at = now(), updated_by = excluded.updated_by;
+  end if;
+end $$;
+revoke execute on function bot_prompt_set(text, text) from anon, public;
+grant execute on function bot_prompt_set(text, text) to authenticated;
+
+-- Every call the Edge Function makes to an AI: what was sent (instructions + messages) and what came back.
+-- Owner only; only the last 300 calls are kept.
+create table if not exists bot_api_log (
+  id          bigint generated always as identity primary key,
+  user_id     uuid references profiles on delete set null,
+  mode        text not null,
+  model       text not null default '',
+  system      text not null default '',
+  messages    jsonb,
+  response    text not null default '',
+  created_at  timestamptz not null default now()
+);
+alter table bot_api_log enable row level security;
+drop policy if exists bot_api_log_owner on bot_api_log;
+create policy bot_api_log_owner on bot_api_log for select using (is_owner());
+
+create or replace function bot_api_log_prune() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  delete from bot_api_log where id <= (select max(id) - 300 from bot_api_log);
+  return null;
+end $$;
+drop trigger if exists bot_api_log_prune on bot_api_log;
+create trigger bot_api_log_prune after insert on bot_api_log for each statement execute function bot_api_log_prune();
+
 -- The owner's Claude (Anthropic API) key, used only for "אישור ותיקון אוטומטי" (better fixes than Gemini; falls
 -- back to Gemini when missing or failing). Kept in site_settings (no policies): only the Edge Function reads it.
 alter table site_settings add column if not exists anthropic_key text;
