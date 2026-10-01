@@ -689,6 +689,9 @@ select pg_temp.check((select deleted from messages where body = '' and anonymous
 update messages set body = 'שכתוב' where not deleted and author_id <> auth.uid();
 select pg_temp.check((select count(*) = 0 from messages where body = 'שכתוב'), 'inspector cannot rewrite messages');
 select pg_temp.check((select count(*) = 0 from anon_authors), 'inspector cannot see anonymous authors');
+select report_message((select id from messages where not deleted order by id limit 1), 'בדיקה');
+select pg_temp.check((select count(*) = 0 from report_list()), 'inspector does not see reports (admins only)');
+select pg_temp.denied($$select handle_report((select id from messages where not deleted order by id limit 1), true)$$, 'inspector does not handle reports');
 select pg_temp.check((select count(*) = 0 from preapproved_emails), 'inspector is not an admin');
 reset role;
 

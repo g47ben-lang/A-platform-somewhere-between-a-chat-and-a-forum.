@@ -1488,16 +1488,16 @@ begin
   on conflict (message_id, reporter_id) do update set reason = coalesce(excluded.reason, message_reports.reason), status = 'open';
 end $$;
 
--- Content removers settle a report: delete the message, or keep it.
+-- Admins settle a report: delete the message, or keep it. (Reports are for admins only.)
 create or replace function handle_report(p_message bigint, p_delete boolean) returns void
 language plpgsql security definer set search_path = public as $$
 begin
-  if not can_remove_content() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
+  if not is_admin() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
   if p_delete then update messages set deleted = true where id = p_message; end if;
   update message_reports set status = 'handled', handled_by = auth.uid(), handled_at = now() where message_id = p_message;
 end $$;
 
--- Open reports with the message, for moderators. Reporters are not shown.
+-- Open reports with the message, for admins only. Reporters are not shown.
 create or replace function report_list()
 returns table (message_id bigint, channel_id bigint, author_id uuid, anonymous boolean, body text, attachment jsonb,
                reports int, reasons text[], last_at timestamptz)
@@ -1505,7 +1505,7 @@ language sql stable security definer set search_path = public as $$
   select m.id, m.channel_id, m.author_id, m.anonymous, m.body, m.attachment, count(*)::int,
          array_remove(array_agg(r.reason order by r.created_at), null), max(r.created_at)
     from message_reports r join messages m on m.id = r.message_id
-   where r.status = 'open' and can_remove_content()
+   where r.status = 'open' and is_admin()
    group by m.id order by max(r.created_at) desc;
 $$;
 
