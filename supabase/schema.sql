@@ -2435,7 +2435,7 @@ grant execute on function create_room, send_message, mark_room_read, mark_room_u
   member_stats to authenticated;
 
 -- ---------- Guest view (temporary, read-only, without logging in) ----------
--- An admin may open the rooms for reading to visitors who are not logged in, for a limited time
+-- The owner may open the rooms for reading to visitors who are not logged in, for a limited time
 -- (e.g. two days to introduce the site to the public). It closes by itself when the time is up.
 -- Guests read only rooms, room messages, active members' names and reactions/likes: never private
 -- chats, anonymous authors, polls, confessions or anything else, and they cannot write anything.
@@ -2458,12 +2458,12 @@ language sql stable security definer set search_path = public as $$
   select guest_view_until from site_settings where id = 1 and guest_view_until > now();
 $$;
 
--- Admins only: open guest view for p_hours hours from now (1..720), or close it (null / 0).
+-- The owner (מנהל-על) only: open guest view for p_hours hours from now (1..720), or close it (null / 0).
 create or replace function set_guest_view(p_hours int) returns timestamptz
 language plpgsql security definer set search_path = public as $$
 declare v timestamptz;
 begin
-  if not is_admin() then raise exception 'אין הרשאה' using errcode = '42501'; end if;
+  if not is_owner() then raise exception 'רק מנהל-העל יכול לפתוח את האתר לצפייה' using errcode = '42501'; end if;
   if p_hours is not null and p_hours not between 0 and 720 then raise exception 'אפשר לפתוח לכל היותר ל-30 יום'; end if;
   v := case when coalesce(p_hours, 0) = 0 then null else now() + make_interval(hours => p_hours) end;
   insert into site_settings (id, guest_view_until, guest_view_by) values (1, v, auth.uid())

@@ -1,13 +1,15 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { appUrl, OWNER_EMAIL, OWNER_LOGIN, supabase, SITE_NAME } from '../supabase';
-import { errorText } from '../lib/format';
+import { errorText, fullDate } from '../lib/format';
 import Icon from '../components/Icon';
+import { useApp } from '../AppContext';
 import PasswordFields, { passwordProblem } from '../components/PasswordFields';
 
 type Mode = 'login' | 'signup' | 'reset';
 
 /** onGuest: shown while guest view is open, to go back to reading without logging in. */
 export default function AuthPage({ onGuest }: { onGuest?: () => void } = {}) {
+  const { guestUntil } = useApp();
   const [mode, setMode] = useState<Mode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -105,9 +107,15 @@ export default function AuthPage({ onGuest }: { onGuest?: () => void } = {}) {
         <h1 className="auth-title">{heading}</h1>
         <p className="auth-sub">{sub}</p>
         {onGuest && (
-          <button type="button" className="btn tonal guest-back" onClick={onGuest}>
-            <Icon name="visibility" size={18} /> חזרה לצפייה בצ'אט בלי להתחבר
-          </button>
+          <div className="guest-entry">
+            <button type="button" className="btn tonal" onClick={onGuest}>
+              <Icon name="visibility" size={18} /> כניסה בלי חשבון (צפייה בלבד)
+            </button>
+            <p>
+              אפשרות זמנית לימים הקרובים בלבד{guestUntil ? `, עד ${fullDate(guestUntil)}` : ''}, כדי להכיר את האתר. אפשר רק
+              לקרוא, בלי לכתוב או להגיב. אחר כך האתר יחזור להיות פתוח לחברים רשומים בלבד.
+            </p>
+          </div>
         )}
         {mode !== 'reset' && <JoinInfo login={mode === 'login'} />}
 

@@ -118,10 +118,12 @@ export default function AdminPage() {
           <button className={tab === 'preapproved' ? 'on' : ''} onClick={() => setTab('preapproved')} role="tab">
             <Icon name="check" size={20} /> אישור מראש
           </button>
-          <button className={tab === 'guest' ? 'on' : ''} onClick={() => setTab('guest')} role="tab">
-            <Icon name="visibility" size={20} /> צפייה ללא התחברות
-            {guestUntil && <span className="badge-count">פתוח</span>}
-          </button>
+          {isOwner && (
+            <button className={tab === 'guest' ? 'on' : ''} onClick={() => setTab('guest')} role="tab">
+              <Icon name="visibility" size={20} /> צפייה ללא התחברות
+              {guestUntil && <span className="badge-count">פתוח</span>}
+            </button>
+          )}
           <button className={tab === 'stats' ? 'on' : ''} onClick={() => setTab('stats')} role="tab">
             <Icon name="bar_chart" size={20} /> סטטיסטיקה
           </button>
@@ -302,7 +304,7 @@ export default function AdminPage() {
         {tab === 'feedback' && <FeedbackAdmin />}
 
         {tab === 'stats' && <AdminStats />}
-        {tab === 'guest' && <GuestViewAdmin />}
+        {tab === 'guest' && isOwner && <GuestViewAdmin />}
 
         {tab === 'preapproved' && (
           <>

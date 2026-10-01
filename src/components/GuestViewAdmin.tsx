@@ -12,7 +12,7 @@ const CHOICES = [
   { hours: 168, label: 'שבוע' },
 ];
 
-/** Admin tab: temporarily let visitors read the rooms without logging in. Closes by itself at the end time. */
+/** Owner-only tab (מנהל-על): temporarily let visitors read the rooms without logging in. Closes by itself at the end time. */
 export default function GuestViewAdmin() {
   const { guestUntil } = useApp();
   const { confirm, toast } = useFeedback();
