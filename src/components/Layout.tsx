@@ -168,10 +168,6 @@ export default function Layout() {
             <Icon name="ballot" />
             <span className="nav-label">סקרים</span>
           </NavLink>
-          <NavLink to="/bot" className="nav-item">
-            <Icon name="mood" />
-            <span className="nav-label">{BOT_NAME}</span>
-          </NavLink>
           <NavLink to="/contact" className="nav-item">
             <Icon name="mail" />
             <span className="nav-label">יצירת קשר עם הניהול</span>
@@ -262,6 +258,13 @@ export default function Layout() {
       <main className="main">
         <Outlet />
       </main>
+
+      {location.pathname !== '/bot' && (
+        <Link to="/bot" className="bot-fab" aria-label={`צ'אט עם ${BOT_NAME}`} title={`צ'אט עם ${BOT_NAME}`}>
+          <Icon name="smart_toy" filled size={28} />
+          <span className="bot-fab-label">{BOT_NAME}</span>
+        </Link>
+      )}
 
       {newChat && <NewChatDialog onClose={() => setNewChat(false)} />}
       {newRoom && <RoomDialog onClose={() => setNewRoom(false)} />}

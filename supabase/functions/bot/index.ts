@@ -61,6 +61,17 @@ async function gemini(db: SupabaseClient, system: string, contents: Json[], sche
       await db.rpc('ai_key_result', { p_id: k.id, p_error: '429: נגמרה המכסה לרגע', p_cooldown: 65 });
       continue;
     }
+    if (r.status === 404) {
+      // Model retired: follow the model Google recommends in the error (or the newest flash it lists) for all keys.
+      const t = await r.text();
+      const next = recommendedModel(t, k.model) ?? (await newestFlash(k.api_key, k.model));
+      if (next) {
+        await db.from('ai_keys').update({ model: next, cooldown_until: null, last_error: null }).eq('model', k.model);
+        continue;
+      }
+      await db.rpc('ai_key_result', { p_id: k.id, p_error: `404: ${t.slice(0, 240)}`, p_cooldown: 3600 });
+      continue;
+    }
     if (!r.ok) {
       const t = (await r.text()).slice(0, 250);
       // bad / revoked key or unknown model: rest for an hour; server trouble: half a minute
@@ -77,6 +88,23 @@ async function gemini(db: SupabaseClient, system: string, contents: Json[], sche
     }
   }
   return null;
+}
+
+function recommendedModel(errorText: string, current: string): string | null {
+  const m = [...errorText.matchAll(/models\/(gemini-[a-z0-9.\-]+)/gi)].map((x) => x[1]).find((x) => x !== current);
+  return m ?? null;
+}
+
+async function newestFlash(key: string, current: string): Promise<string | null> {
+  const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', { headers: { 'x-goog-api-key': key } });
+  if (!r.ok) return null;
+  const j = (await r.json()) as { models?: { name: string; supportedGenerationMethods?: string[] }[] };
+  const names = (j.models ?? [])
+    .filter((m) => m.supportedGenerationMethods?.includes('generateContent'))
+    .map((m) => m.name.replace(/^models\//, ''))
+    .filter((n) => /^gemini-[\d.]+-flash$/.test(n) && n !== current);
+  names.sort((a, b) => parseFloat(b.slice(7)) - parseFloat(a.slice(7)));
+  return names[0] ?? null;
 }
 
 // ---------- Who is mentioned ----------

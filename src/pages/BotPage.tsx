@@ -105,7 +105,7 @@ export default function BotPage() {
   return (
     <section className="pane chat-pane">
       <header className="pane-head">
-        <span className="bot-avatar"><Icon name="mood" size={22} /></span>
+        <span className="bot-avatar"><Icon name="smart_toy" size={24} /></span>
         <div className="pane-titles">
           <h1>{BOT_NAME}</h1>
           <p>הבוט של הוועד: נייעס, פאנצ'ים ומה קורה בצ'אט</p>
@@ -127,7 +127,7 @@ export default function BotPage() {
             <>
               {list.length === 0 && (
                 <div className="dm-intro">
-                  <span className="bot-avatar large"><Icon name="mood" size={40} /></span>
+                  <span className="bot-avatar large"><Icon name="smart_toy" size={40} /></span>
                   <h2>{BOT_NAME}</h2>
                   <p className="muted">
                     שואלים אותו מה הנייעס, מה חבר כתב בצ'אט, מבקשים שיעביר שאלה לחבר ("תשאל את... אם...") או סתם פאנץ'.

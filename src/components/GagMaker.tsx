@@ -95,7 +95,7 @@ export default function GagMaker({ roomId, onClose, onSent }: { roomId: number; 
               </label>
             )}
             <button type="button" className="btn tonal small" onClick={aiWrite} disabled={writing}>
-              <Icon name="mood" size={18} /> {writing ? 'סנדר כותב…' : text.trim() ? 'שיפור עם סנדר' : 'כתוב לי (סנדר)'}
+              <Icon name="smart_toy" size={18} /> {writing ? 'סנדר כותב…' : text.trim() ? 'שיפור עם סנדר' : 'כתוב לי (סנדר)'}
             </button>
             <p className="muted small">המבזק מתפרסם כטקסט מעוצב (לא כתמונה, כדי שנטפרי לא יעכב אותו) בחדר הנוכחי, ומופיע ב"כל המבזקים" בכותרת הכחולה של הצ'אט הראשי.</p>
             <div className="dialog-actions">

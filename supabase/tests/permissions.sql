@@ -749,7 +749,7 @@ select pg_temp.denied($$select ai_key_add('x', 'AIzaSyFAKEFAKEFAKE')$$, 'a regul
 reset role;
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000e0');
 select ai_key_add('ראשי', 'AIzaSyFAKEFAKEFAKE1234', null, 100, 2);
-select pg_temp.check((select masked = 'AIza…1234' and model = 'gemini-2.5-flash' from ai_key_list()), 'owner sees keys masked');
+select pg_temp.check((select masked = 'AIza…1234' and model = 'gemini-3.8-flash' from ai_key_list()), 'owner sees keys masked');
 reset role;
 -- the Edge Function (service role) takes keys within the per-minute limit
 update bot_state set blocked_until = now() - interval '1 minute';

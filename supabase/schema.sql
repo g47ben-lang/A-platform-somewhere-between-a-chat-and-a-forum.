@@ -2541,7 +2541,7 @@ create table if not exists ai_keys (
   id             bigint generated always as identity primary key,
   label          text not null check (char_length(label) between 1 and 40),
   api_key        text not null check (char_length(api_key) between 10 and 200),
-  model          text not null default 'gemini-2.5-flash' check (char_length(model) between 3 and 60),
+  model          text not null default 'gemini-3.8-flash' check (char_length(model) between 3 and 60),
   daily_limit    int  not null default 200 check (daily_limit between 1 and 100000),
   per_minute     int  not null default 8 check (per_minute between 1 and 1000),
   enabled        boolean not null default true,
@@ -2555,6 +2555,10 @@ create table if not exists ai_keys (
   added_at       timestamptz not null default now()
 );
 alter table ai_keys enable row level security;  -- no policies: owner functions and the Edge Function only
+-- Google retired gemini-2.5-flash for new keys and recommends gemini-3.8-flash: the default, and every old key moves
+-- to it (and stops resting after the 404). The Edge Function also follows Google's recommendation by itself on a 404.
+alter table ai_keys alter column model set default 'gemini-3.8-flash';
+update ai_keys set model = 'gemini-3.8-flash', cooldown_until = null, last_error = null where model = 'gemini-2.5-flash';
 
 create table if not exists bot_messages (
   id          bigint generated always as identity primary key,
@@ -2600,7 +2604,7 @@ declare v bigint;
 begin
   if not is_owner() then raise exception 'רק מנהל-העל מנהל את מפתחות ה-AI' using errcode = '42501'; end if;
   insert into ai_keys (label, api_key, model, daily_limit, per_minute)
-  values (trim(p_label), trim(p_key), coalesce(nullif(trim(p_model), ''), 'gemini-2.5-flash'), p_daily, p_minute)
+  values (trim(p_label), trim(p_key), coalesce(nullif(trim(p_model), ''), 'gemini-3.8-flash'), p_daily, p_minute)
   returning id into v;
   return v;
 end $$;

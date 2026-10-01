@@ -8,7 +8,7 @@ const ICONS = [
   'format_quote', 'forum', 'forward', 'group', 'home', 'hourglass_top', 'interests', 'keep', 'label', 'link', 'lock', 'logout', 'mail',
   'mark_chat_unread', 'menu', 'mood', 'more_vert', 'newspaper', 'notifications', 'notifications_off', 'bar_chart', 'flag', 'gavel', 'person', 'person_add', 'photo_camera', 'remove', 'reply', 'schedule',
   'search', 'send', 'settings', 'shield_person', 'star', 'thumb_up', 'videocam', 'visibility',
-  'visibility_off', 'workspace_premium',
+  'visibility_off', 'workspace_premium', 'smart_toy',
 ] as const;
 
 export type IconName = (typeof ICONS)[number];

@@ -1354,3 +1354,17 @@ button.author:hover, .title-link:hover { text-decoration: underline; }
 .flash-meta { font-size: 11px; opacity: 0.85; display: inline-flex; align-items: center; gap: 3px; }
 .room-hero .flash-meta { color: #fff; }
 .guest-highlights .flash-strip { padding: 0 16px 8px; }
+
+/* Floating button to סנדר, bottom right (above the sidebar's bottom; above the composer on phones). */
+.bot-fab {
+  position: fixed; right: 20px; bottom: 20px; z-index: 30;
+  display: inline-flex; align-items: center; gap: 8px; height: 56px; padding: 0 18px 0 14px; border-radius: 18px;
+  background: var(--primary); color: var(--on-primary); box-shadow: var(--shadow-2);
+  text-decoration: none !important; font-weight: 500; transition: transform 0.15s, box-shadow 0.15s;
+}
+.bot-fab:hover { transform: translateY(-2px); }
+.sidebar { padding-bottom: 92px; }
+@media (max-width: 900px) {
+  .bot-fab { bottom: 96px; right: 14px; height: 48px; padding: 0 12px; border-radius: 16px; }
+  .bot-fab-label { display: none; }
+}

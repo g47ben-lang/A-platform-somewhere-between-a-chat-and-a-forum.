@@ -22,7 +22,7 @@ interface AiKey {
 export default function AiKeysAdmin() {
   const { toast, confirm } = useFeedback();
   const [keys, setKeys] = useState<AiKey[] | null>(null);
-  const [form, setForm] = useState({ label: '', key: '', model: 'gemini-2.5-flash', daily: 200, minute: 8 });
+  const [form, setForm] = useState({ label: '', key: '', model: 'gemini-3.8-flash', daily: 200, minute: 8 });
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -82,7 +82,7 @@ export default function AiKeysAdmin() {
       {keys === null ? (
         <div className="spinner" />
       ) : keys.length === 0 ? (
-        <div className="empty-inline small"><Icon name="mood" /><span>עוד אין מפתחות. בלי מפתח סנדר לא עונה.</span></div>
+        <div className="empty-inline small"><Icon name="smart_toy" /><span>עוד אין מפתחות. בלי מפתח סנדר לא עונה.</span></div>
       ) : (
         <ul className="list">
           {keys.map((k) => {
